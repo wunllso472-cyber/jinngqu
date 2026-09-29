@@ -1,0 +1,160 @@
+{
+  "origin": "https://www.yingmu.fun",
+  "fetchedAt": "2026-09-29T14:10:02.613Z",
+  "scenes": [
+    {
+      "id": 1,
+      "name": "老君山",
+      "enabled": true,
+      "services": {
+        "OUTFIT_PHOTO": {
+          "enabled": true,
+          "remaining": 9,
+          "retailFen": 190
+        },
+        "OUTFIT_VIDEO": {
+          "enabled": true,
+          "remaining": 6,
+          "retailFen": 990
+        },
+        "SCENIC_CHECKIN": {
+          "enabled": true,
+          "remaining": 14,
+          "retailFen": 90
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "测试地址1",
+      "enabled": false,
+      "services": {
+        "OUTFIT_PHOTO": {
+          "enabled": true,
+          "remaining": 0,
+          "retailFen": 190
+        },
+        "OUTFIT_VIDEO": {
+          "enabled": true,
+          "remaining": 0,
+          "retailFen": 990
+        },
+        "SCENIC_CHECKIN": {
+          "enabled": true,
+          "remaining": 1,
+          "retailFen": 90
+        }
+      }
+    }
+  ],
+  "templates": [
+    {
+      "code": "laojunshan-story-pro-video",
+      "type": "OUTFIT_VIDEO",
+      "title": "云上老君山·实景换装",
+      "description": "约31秒实景旅拍，仅两段有人画面使用Wan2.2，共23.17秒。无人风景保留，不按秒拆分、不补长、不复用动作。每次¥9.90，当前模拟支付、实际收款0元。",
+      "tags": "",
+      "featured": true,
+      "sortOrder": 110,
+      "retailFen": 990,
+      "videoPipeline": "MULTI_SHOT",
+      "cover": "laojunshan-story-pro-video-cover.png",
+      "scene": null,
+      "video": "laojunshan-story-pro-video-video.mp4"
+    },
+    {
+      "code": "laojunshan-story-video",
+      "type": "OUTFIT_VIDEO",
+      "title": "云上老君山·实景旅拍",
+      "description": "约31秒原片旅拍：无人风景保留，人物动作去重并发生成、精细抠像、按原轨迹合成，保留原片音轨。每次¥9.90（模拟支付）。",
+      "tags": "",
+      "featured": true,
+      "sortOrder": 100,
+      "retailFen": 990,
+      "videoPipeline": "MULTI_SHOT",
+      "cover": "laojunshan-story-video-cover.png",
+      "scene": null,
+      "video": "laojunshan-story-video-video.mp4"
+    },
+    {
+      "code": "scenic-outfit-video",
+      "type": "OUTFIT_VIDEO",
+      "title": "老君山七景·换装视频",
+      "description": "Wan2.2人物动作迁移，精细抠像合成老君山七景。7秒视频，每秒一景，制作 ¥9.90（模拟支付），失败退回。",
+      "tags": "",
+      "featured": true,
+      "sortOrder": 0,
+      "retailFen": 990,
+      "videoPipeline": "LOOP",
+      "cover": "scenic-outfit-video-cover.png",
+      "scene": null,
+      "video": "scenic-outfit-video-video.mp4"
+    },
+    {
+      "code": "zhongtianmen-outfit-photo",
+      "type": "OUTFIT_PHOTO",
+      "title": "中天门换装·修仙",
+      "description": "白模提供场景与动作，人物模板提供长相和服装。AI换装照片每次 ¥1.90（模拟支付），失败自动退回。",
+      "tags": "",
+      "featured": true,
+      "sortOrder": 0,
+      "retailFen": 190,
+      "videoPipeline": "LOOP",
+      "cover": "zhongtianmen-outfit-photo-cover.jpg",
+      "scene": "zhongtianmen-outfit-photo-scene.png",
+      "video": null
+    },
+    {
+      "code": "golden-palace-group-photo",
+      "type": "SCENIC_CHECKIN",
+      "title": "金殿合拍·祈福",
+      "description": "上传人物照片，制作专属景区打卡合影。",
+      "tags": "",
+      "featured": true,
+      "sortOrder": 0,
+      "retailFen": 90,
+      "videoPipeline": "LOOP",
+      "cover": "golden-palace-group-photo-cover.jpg",
+      "scene": null,
+      "video": null,
+      "background": null
+    }
+  ],
+  "ui": {
+    "icon-checkin": "icon-checkin.png",
+    "icon-outfit-photo": "icon-outfit-photo.png",
+    "icon-outfit-video": "icon-outfit-video.png",
+    "icon-characters": "icon-characters.png",
+    "icon-service": "icon-service.png",
+    "icon-favorite": "icon-favorite.png",
+    "icon-order": "icon-order.png",
+    "icon-print": "icon-print.png",
+    "icon-redeem": "icon-redeem.png",
+    "avatar-default": "avatar-default.png",
+    "profile-hero": "profile-hero.jpg",
+    "welcome-poster": "welcome-poster.jpg",
+    "welcome-video": "welcome-video.mp4",
+    "scan-poster": "scan-poster.jpg",
+    "scan-video": "scan-video.mp4"
+  },
+  "display": [
+    "display-01.webp",
+    "display-02.webp",
+    "display-03.webp",
+    "display-04.webp",
+    "display-05.webp",
+    "display-06.webp",
+    "display-07.webp",
+    "display-08.webp",
+    "display-09.webp",
+    "display-10.webp",
+    "display-11.webp",
+    "display-12.webp",
+    "display-13.webp",
+    "display-14.webp",
+    "display-15.webp",
+    "display-16.webp",
+    "display-17.webp",
+    "display-18.webp"
+  ]
+}

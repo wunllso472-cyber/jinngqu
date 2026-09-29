@@ -1,0 +1,28 @@
+{
+  "_说明": "复制为 config/runninghub.json 并填写。每个服务对应一个 RunningHub 工作流；inputs 把本系统的素材映射到工作流的 LoadImage / LoadVideo 节点。可用素材：body（人物身体照）、face（人脸照，可选）、base（白模场景图）、background（模板高清背景）、video（模板预览视频）。未配置 workflowId 的服务自动回退到本地模拟。",
+  "CHECKIN": {
+    "_说明": "打卡合拍：工作流只需输出透明背景的人物抠像 PNG，合成由本地按模板锚点完成",
+    "workflowId": "",
+    "inputs": {
+      "body": { "nodeId": "", "fieldName": "image", "required": true }
+    }
+  },
+  "OUTFIT_PHOTO": {
+    "workflowId": "",
+    "inputs": {
+      "base": { "nodeId": "", "fieldName": "image", "required": true },
+      "body": { "nodeId": "", "fieldName": "image", "required": true },
+      "face": { "nodeId": "", "fieldName": "image" }
+    },
+    "params": []
+  },
+  "OUTFIT_VIDEO": {
+    "workflowId": "",
+    "inputs": {
+      "body": { "nodeId": "", "fieldName": "image", "required": true },
+      "face": { "nodeId": "", "fieldName": "image" },
+      "video": { "nodeId": "", "fieldName": "video" }
+    },
+    "params": []
+  }
+}
