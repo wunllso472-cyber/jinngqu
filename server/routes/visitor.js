@@ -5,7 +5,7 @@ import { requireAuth } from '../auth.js';
 import { SERVICES } from '../constants.js';
 import { adjustQuota, orderView, serviceAvailability, standardCost, templatePrice } from '../domain.js';
 import { fileUrl, removeKey, saveImage } from '../storage.js';
-import { bad, conflict, forbidden, h, notFound, now, page, serialNo, str } from '../util.js';
+import { bad, conflict, forbidden, h, notFound, now, paged, serialNo, str } from '../util.js';
 import { firstFile, upload } from './helpers.js';
 
 const r = Router();
@@ -183,7 +183,6 @@ r.post(
 );
 
 r.get('/orders', (req, res) => {
-  const { size, offset, page: p } = page(req);
   const where = ['user_id = ?'];
   const params = [req.user.id];
   if (req.query.status === 'active') where.push("status IN ('PENDING','QUEUED','PROCESSING')");
@@ -193,14 +192,12 @@ r.get('/orders', (req, res) => {
     where.push('status = ?');
     params.push(String(req.query.status));
   }
-  const total = scalar(`SELECT COUNT(*) FROM orders WHERE ${where.join(' AND ')}`, ...params);
-  const list = all(`SELECT * FROM orders WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, size, offset);
   const sum = one(
     `SELECT COALESCE(SUM(CASE WHEN status IN ('QUEUED','PROCESSING','SUCCESS') THEN amount END),0) AS spent,
             COALESCE(SUM(refund_amount),0) AS refunded FROM orders WHERE user_id = ?`,
     req.user.id,
   );
-  res.json({ list: list.map((o) => orderView(o)), total, page: p, size, summary: sum });
+  res.json({ ...paged(req, { from: 'orders', where, params, map: (o) => orderView(o) }), summary: sum });
 });
 
 r.get('/orders/:id', (req, res) => {
@@ -209,17 +206,14 @@ r.get('/orders/:id', (req, res) => {
 
 // 我的作品：成功订单
 r.get('/works', (req, res) => {
-  const { size, offset, page: p } = page(req, 24);
+  const where = ['user_id = ?', "status = 'SUCCESS'"];
   const params = [req.user.id];
-  let extra = '';
   if (SERVICES[req.query.type]) {
-    extra = ' AND service_type = ?';
+    where.push('service_type = ?');
     params.push(req.query.type);
   }
-  const total = scalar(`SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'SUCCESS'${extra}`, ...params);
-  const list = all(`SELECT * FROM orders WHERE user_id = ? AND status = 'SUCCESS'${extra} ORDER BY finished_at DESC LIMIT ? OFFSET ?`, ...params, size, offset);
   const processing = scalar("SELECT COUNT(*) FROM orders WHERE user_id = ? AND status IN ('QUEUED','PROCESSING')", req.user.id);
-  res.json({ list: list.map((o) => orderView(o)), total, page: p, size, processing });
+  res.json({ ...paged(req, { from: 'orders', where, params, order: 'finished_at DESC', size: 24, map: (o) => orderView(o) }), processing });
 });
 
 export default r;

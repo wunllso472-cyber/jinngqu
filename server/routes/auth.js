@@ -45,7 +45,7 @@ r.post(
     checkLoginThrottle(throttleKey);
     verifyCaptcha(req.body?.uuid, req.body?.code);
     const user = one('SELECT * FROM users WHERE username = ?', username);
-    if (!user || !verifyPassword(password, user.password_hash)) {
+    if (!user || !(await verifyPassword(password, user.password_hash))) {
       recordLoginFailure(throttleKey);
       throw new ApiError(401, '账号或密码错误');
     }
@@ -68,12 +68,13 @@ r.post(
     if (req.body?.confirm != null && req.body.confirm !== password) throw bad('两次密码不一致');
     if (!req.body?.agree) throw bad('请阅读并同意用户协议与隐私政策');
     verifyCaptcha(req.body?.uuid, req.body?.code);
+    const passwordHash = await hashPassword(password);
     if (one('SELECT 1 FROM users WHERE username = ?', username)) throw conflict('该账号已被注册');
     const nickname = str(req.body?.nickname, 20) || username;
     run(
       "INSERT INTO users (username, password_hash, nickname, role, status, created_at) VALUES (?, ?, ?, 'visitor', 'ENABLED', ?)",
       username,
-      hashPassword(password),
+      passwordHash,
       nickname,
       now(),
     );
@@ -97,9 +98,9 @@ r.put(
     const nickname = str(req.body?.nickname, 20);
     if (nickname) run('UPDATE users SET nickname = ? WHERE id = ?', nickname, req.user.id);
     if (req.body?.newPassword) {
-      if (!verifyPassword(String(req.body.oldPassword ?? ''), req.user.password_hash)) throw bad('原密码不正确');
+      if (!(await verifyPassword(String(req.body.oldPassword ?? ''), req.user.password_hash))) throw bad('原密码不正确');
       if (!PASSWORD_RE.test(req.body.newPassword)) throw bad('密码须为8–20位并包含字母和数字');
-      run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(req.body.newPassword), req.user.id);
+      run('UPDATE users SET password_hash = ? WHERE id = ?', await hashPassword(req.body.newPassword), req.user.id);
     }
     res.json(mePayload(one('SELECT * FROM users WHERE id = ?', req.user.id)));
   }),

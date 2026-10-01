@@ -1,21 +1,23 @@
 import crypto from 'node:crypto';
+import { promisify } from 'node:util';
 import { config } from './config.js';
 import { one, run } from './db.js';
 import { ApiError, forbidden, now } from './util.js';
 
 const SCRYPT_N = 16384;
+const scrypt = promisify(crypto.scrypt);
 
-export function hashPassword(password) {
+export async function hashPassword(password) {
   const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, salt, 32, { N: SCRYPT_N });
+  const hash = await scrypt(password, salt, 32, { N: SCRYPT_N });
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
 }
 
-export function verifyPassword(password, stored) {
+export async function verifyPassword(password, stored) {
   const [algo, saltHex, hashHex] = String(stored).split('$');
   if (algo !== 'scrypt' || !saltHex || !hashHex) return false;
   const expected = Buffer.from(hashHex, 'hex');
-  const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length, { N: SCRYPT_N });
+  const actual = await scrypt(password, Buffer.from(saltHex, 'hex'), expected.length, { N: SCRYPT_N });
   return crypto.timingSafeEqual(expected, actual);
 }
 

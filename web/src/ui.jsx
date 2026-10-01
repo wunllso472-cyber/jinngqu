@@ -178,9 +178,8 @@ export function Pager({ page, size, total, onChange }) {
   );
 }
 
-/** 选择图片，带本地预览 */
-export function ImagePick({ label, hint, file, onChange, accept = 'image/jpeg,image/png', existing, required, video = false }) {
-  const ref = useRef(null);
+/** 本地文件的临时预览地址，文件变化或卸载时释放 */
+export function useObjectUrl(file) {
   const [url, setUrl] = useState(null);
   useEffect(() => {
     if (!file) return setUrl(null);
@@ -188,7 +187,13 @@ export function ImagePick({ label, hint, file, onChange, accept = 'image/jpeg,im
     setUrl(u);
     return () => URL.revokeObjectURL(u);
   }, [file]);
-  const shown = url || existing;
+  return url;
+}
+
+/** 选择图片，带本地预览 */
+export function ImagePick({ label, hint, file, onChange, accept = 'image/jpeg,image/png', existing, required, video = false }) {
+  const ref = useRef(null);
+  const shown = useObjectUrl(file) || existing;
   return (
     <div className="pick">
       <div className="pick-label">

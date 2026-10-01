@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { get, put } from '../../api.js';
-import { SERVICE_TYPES, yuan, yuanPlain } from '../../format.js';
+import { SERVICE_META, SERVICE_TYPES, yuan, yuanPlain } from '../../format.js';
 import UsageTable from '../../components/UsageTable.jsx';
 import PrintDesk from '../../components/PrintDesk.jsx';
 import CodesPanel from '../../components/CodesPanel.jsx';
-import { TicketTable, TicketThread } from '../Tickets.jsx';
-import { ErrorBox, Header, Modal, Pager, Spinner, Stat, toast, useBusy, useLoad } from '../../ui.jsx';
+import { TicketDesk } from '../Tickets.jsx';
+import { ErrorBox, Header, Pager, Spinner, Stat, toast, useBusy, useLoad } from '../../ui.jsx';
 import ScenesPanel from './Scenes.jsx';
 import TemplatesPanel from './Templates.jsx';
 import UsersPanel from './Users.jsx';
@@ -115,14 +115,13 @@ function Settings() {
       setForm(null);
       reload();
     });
-  const names = { CHECKIN: '打卡合拍', OUTFIT_PHOTO: 'AI换装照片', OUTFIT_VIDEO: 'AI换装视频' };
   return (
     <div className="card stack" style={{ maxWidth: 560 }}>
       <h3>标准成本（元 / 次）</h3>
       <p className="small muted">新订单下单时记录当时的标准成本，用于核算成功订单的成本；修改不影响历史订单。</p>
       {SERVICE_TYPES.map((t) => (
         <div className="field" key={t}>
-          <label>{names[t]}</label>
+          <label>{SERVICE_META[t].name}</label>
           <input className="input" inputMode="decimal" value={f.costs[t]} onChange={(e) => setForm({ ...f, costs: { ...f.costs, [t]: e.target.value } })} />
         </div>
       ))}
@@ -186,33 +185,13 @@ function Audit() {
   );
 }
 
-function Tickets({ sceneId }) {
-  const [openId, setOpenId] = useState(null);
-  const [key, setKey] = useState(0);
-  return (
-    <>
-      <TicketTable key={`${key}-${sceneId}`} scope="handle" sceneId={sceneId} onOpen={(t) => setOpenId(t.id)} />
-      <Modal
-        open={!!openId}
-        wide
-        title="处理工单"
-        onClose={() => {
-          setOpenId(null);
-          setKey((k) => k + 1);
-        }}
-      >
-        {openId && <TicketThread id={openId} />}
-      </Modal>
-    </>
-  );
-}
-
 export default function Admin() {
   const [tab, setTab] = useState('overview');
   const [sceneId, setSceneId] = useState(null);
   const scenes = useLoad(() => get('/admin/scenes'), []);
   const scoped = ['overview', 'withdrawals', 'orders', 'purchases', 'usage', 'tickets', 'templates', 'prints', 'codes'].includes(tab);
   const usageScene = sceneId || scenes.data?.[0]?.id;
+  const pendingWithdrawals = scenes.data?.reduce((n, s) => n + s.pendingWithdrawals, 0) ?? 0;
 
   return (
     <div>
@@ -222,9 +201,7 @@ export default function Admin() {
           {NAV.map(([k, label]) => (
             <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>
               <span>{label}</span>
-              {k === 'withdrawals' && scenes.data && scenes.data.reduce((n, s) => n + s.pendingWithdrawals, 0) > 0 && (
-                <span className="tab-count">{scenes.data.reduce((n, s) => n + s.pendingWithdrawals, 0)}</span>
-              )}
+              {k === 'withdrawals' && pendingWithdrawals > 0 && <span className="tab-count">{pendingWithdrawals}</span>}
             </button>
           ))}
         </nav>
@@ -246,7 +223,7 @@ export default function Admin() {
           {tab === 'prints' && <PrintDesk sceneId={sceneId} />}
           {tab === 'codes' && <CodesPanel sceneId={sceneId} />}
           {tab === 'settings' && <Settings />}
-          {tab === 'tickets' && <Tickets sceneId={sceneId} />}
+          {tab === 'tickets' && <TicketDesk sceneId={sceneId} />}
           {tab === 'audit' && <Audit />}
         </main>
       </div>

@@ -7,7 +7,5 @@ export const SERVICES = {
 export const SERVICE_TYPES = Object.keys(SERVICES);
 
 export const ROLES = ['visitor', 'merchant', 'admin'];
-export const ROLE_NAMES = { visitor: '游客', merchant: '商户', admin: '管理员' };
 
-export const ORDER_ACTIVE = ['QUEUED', 'PROCESSING'];
 export const LOW_QUOTA = 5;

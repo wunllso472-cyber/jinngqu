@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../api.js';
+import { post } from '../api.js';
 import { ImagePick, Modal, toast, useBusy } from '../ui.jsx';
 
 const MAX = 10 * 1024 * 1024;
@@ -27,7 +27,7 @@ export default function CharacterForm({ open, onClose, onCreated }) {
       if (face) fd.append('face', face);
       fd.append('name', name);
       fd.append('consent', 'true');
-      const c = await api('/characters', { method: 'POST', body: fd });
+      const c = await post('/characters', fd);
       toast('人物模板已保存', 'ok');
       setBody(null);
       setFace(null);

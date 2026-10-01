@@ -1,9 +1,10 @@
 // 兑换码与积分：商户/管理员批量发行，游客兑换入账。积分不代表在线付款。
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import { all, one, run, scalar, tx } from '../db.js';
+import { one, run, tx } from '../db.js';
 import { requireAuth, requireRole } from '../auth.js';
-import { audit, bad, conflict, forbidden, h, intIn, notFound, now, page, serialNo } from '../util.js';
+import { userBrief } from '../domain.js';
+import { audit, bad, conflict, forbidden, h, intIn, notFound, now, paged, serialNo } from '../util.js';
 import { merchantScene } from './helpers.js';
 import { config } from '../config.js';
 
@@ -17,11 +18,7 @@ function newCode() {
   return s.match(/.{4}/g).join('-');
 }
 
-const plusDays = (days) => {
-  const d = new Date(Date.now() + days * 86400_000);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-};
+const plusDays = (days) => now(new Date(Date.now() + days * 86400_000));
 
 function codeStatus(c) {
   if (c.status === 'ACTIVE' && c.expires_at < now()) return 'EXPIRED';
@@ -29,7 +26,6 @@ function codeStatus(c) {
 }
 
 function codeView(c) {
-  const issuer = one('SELECT id, username, nickname FROM users WHERE id = ?', c.issuer_id);
   const redeemer = c.redeemed_by ? one('SELECT id, username FROM users WHERE id = ?', c.redeemed_by) : null;
   return {
     id: c.id,
@@ -37,7 +33,7 @@ function codeView(c) {
     tail: c.code_tail,
     points: c.points,
     status: codeStatus(c),
-    issuer: issuer && { id: issuer.id, username: issuer.username, nickname: issuer.nickname },
+    issuer: userBrief(c.issuer_id),
     issuerRole: c.issuer_role,
     redeemedBy: redeemer && { id: redeemer.id, username: redeemer.username },
     expiresAt: c.expires_at,
@@ -69,11 +65,8 @@ export const points = Router();
 points.use(requireAuth);
 
 points.get('/', (req, res) => {
-  const { size, offset, page: p } = page(req);
-  const total = scalar('SELECT COUNT(*) FROM points_ledger WHERE user_id = ?', req.user.id);
-  const list = all('SELECT * FROM points_ledger WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?', req.user.id, size, offset);
   const balance = one('SELECT points FROM users WHERE id = ?', req.user.id).points;
-  res.json({ balance, list, total, page: p, size });
+  res.json({ balance, ...paged(req, { from: 'points_ledger', where: ['user_id = ?'], params: [req.user.id] }) });
 });
 
 points.post(
@@ -104,7 +97,6 @@ export const codes = Router();
 codes.use(requireRole('merchant', 'admin'));
 
 codes.get('/', (req, res) => {
-  const { size, offset, page: p } = page(req);
   const where = [];
   const params = [];
   if (req.user.role === 'merchant') {
@@ -118,11 +110,10 @@ codes.get('/', (req, res) => {
   if (st === 'ACTIVE') where.push("status = 'ACTIVE' AND expires_at >= ?"), params.push(now());
   else if (st === 'EXPIRED') where.push("status = 'ACTIVE' AND expires_at < ?"), params.push(now());
   else if (['REDEEMED', 'REVOKED'].includes(st)) where.push('status = ?'), params.push(st);
-  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const total = scalar(`SELECT COUNT(*) FROM redeem_codes ${w}`, ...params);
-  const list = all(`SELECT * FROM redeem_codes ${w} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, size, offset);
-  const me = one('SELECT code_quota FROM users WHERE id = ?', req.user.id);
-  res.json({ list: list.map(codeView), total, page: p, size, quota: req.user.role === 'admin' ? null : me.code_quota });
+  res.json({
+    ...paged(req, { from: 'redeem_codes', where, params, map: codeView }),
+    quota: req.user.role === 'admin' ? null : req.user.code_quota,
+  });
 });
 
 // 批量生成：明文仅在本次响应中返回
@@ -189,8 +180,8 @@ codes.post(
 // 管理员为商户分配发放额度
 codes.post(
   '/quota',
+  requireRole('admin'),
   h(async (req, res) => {
-    if (req.user.role !== 'admin') throw forbidden();
     const u = one('SELECT * FROM users WHERE id = ?', Number(req.body?.userId));
     if (!u || u.role !== 'merchant') throw bad('只能给商户账号分配发放额度');
     const delta = intIn(req.body?.delta, -1_000_000, 1_000_000);

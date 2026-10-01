@@ -27,10 +27,11 @@ export function createApp() {
     if (!isValidKey(key)) return res.status(404).end();
     if (!verifySignature(key, req.query.e, req.query.s)) return res.status(403).send('链接已过期，请刷新页面');
     const file = absPath(key);
-    if (!fs.existsSync(file)) return res.status(404).end();
     if (req.query.dl) res.attachment(`scenic-${path.basename(file)}`);
     res.set('Cache-Control', key.startsWith('public/') ? 'public, max-age=86400' : 'private, max-age=3600');
-    res.sendFile(file);
+    res.sendFile(file, (err) => {
+      if (err && !res.headersSent) res.status(err.status === 404 ? 404 : 500).end();
+    });
   });
 
   const api = express.Router();

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get } from '../api.js';
-import { ORDER_STATUS, yuan } from '../format.js';
+import { ORDER_STATUS, shortTime, yuan } from '../format.js';
 import { Empty, ErrorBox, Header, Pager, Spinner, StatusBadge, Tabs, useLoad } from '../ui.jsx';
 
 export default function Orders() {
@@ -51,7 +51,7 @@ export default function Orders() {
                     <span className="gold">{yuan(o.amount)}</span>
                   </div>
                   <div className="small muted">
-                    {o.serviceName} · {o.sceneName} · {o.createdAt.slice(5, 16)}
+                    {o.serviceName} · {o.sceneName} · {shortTime(o.createdAt)}
                   </div>
                   <div className="row mt" style={{ marginTop: 6 }}>
                     <StatusBadge map={ORDER_STATUS} status={o.status} />

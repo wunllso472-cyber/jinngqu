@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL,
   expires_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 
 CREATE TABLE IF NOT EXISTS scenes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,6 +124,7 @@ CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_orders_merchant ON orders(merchant_id, status);
 CREATE INDEX IF NOT EXISTS idx_orders_scene ON orders(scene_id, status);
 CREATE INDEX IF NOT EXISTS idx_orders_template ON orders(template_id, status);
+CREATE INDEX IF NOT EXISTS idx_orders_queue ON orders(paid_at, id) WHERE status = 'QUEUED';
 
 CREATE TABLE IF NOT EXISTS likes (
   user_id INTEGER NOT NULL REFERENCES users(id),
@@ -130,12 +132,14 @@ CREATE TABLE IF NOT EXISTS likes (
   created_at TEXT NOT NULL,
   PRIMARY KEY (user_id, template_id)
 );
+CREATE INDEX IF NOT EXISTS idx_likes_template ON likes(template_id);
 CREATE TABLE IF NOT EXISTS favorites (
   user_id INTEGER NOT NULL REFERENCES users(id),
   template_id INTEGER NOT NULL REFERENCES templates(id),
   created_at TEXT NOT NULL,
   PRIMARY KEY (user_id, template_id)
 );
+CREATE INDEX IF NOT EXISTS idx_favorites_template ON favorites(template_id);
 
 CREATE TABLE IF NOT EXISTS quota_purchases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -328,10 +332,12 @@ export function tx(fn) {
   }
 }
 
+// 设置只经 setSetting 写入，常驻内存，避免每个请求查库
+const settings = new Map(all('SELECT key, value FROM settings').map((r) => [r.key, r.value]));
 export function getSetting(key, fallback = null) {
-  const row = one('SELECT value FROM settings WHERE key = ?', key);
-  return row ? row.value : fallback;
+  return settings.get(key) ?? fallback;
 }
 export function setSetting(key, value) {
   run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, String(value));
+  settings.set(key, String(value));
 }

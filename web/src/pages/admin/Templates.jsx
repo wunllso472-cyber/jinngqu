@@ -1,21 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
-import { api, get, post } from '../../api.js';
-import { SERVICE_META, SERVICE_TYPES, yuan, yuanPlain } from '../../format.js';
-import { Badge, Empty, ErrorBox, ImagePick, Modal, Spinner, Tabs, confirm, toast, useBusy, useLoad } from '../../ui.jsx';
-
-const STATUS = { ON: ['已上架', 'ok'], OFF: ['已下架', 'mute'], ARCHIVED: ['已归档', 'bad'] };
+import { useRef, useState } from 'react';
+import { get, post, put } from '../../api.js';
+import { SERVICE_META, SERVICE_TYPES, TEMPLATE_STATUS, yuan, yuanPlain } from '../../format.js';
+import { Empty, ErrorBox, ImagePick, Modal, Spinner, StatusBadge, Tabs, confirm, toast, useBusy, useLoad, useObjectUrl } from '../../ui.jsx';
 
 /** 在背景图上点击设置人物脚底中心，并预览人物高度框 */
 function AnchorEditor({ src, width, height, anchorX, anchorY, personHeight, onChange }) {
   const imgRef = useRef(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
-  const [natural, setNatural] = useState({ w: width || 0, h: height || 0 });
-  useEffect(() => setNatural({ w: width || 0, h: height || 0 }), [width, height]);
+  const [measured, setMeasured] = useState({ w: 0, h: 0 });
+  // 已知画布尺寸时以其为准，否则用图片原始尺寸
+  const natural = width ? { w: width, h: height || 0 } : measured;
   const measure = () => {
     const el = imgRef.current;
     if (!el) return;
     setBox({ w: el.clientWidth, h: el.clientHeight });
-    if (!width) setNatural({ w: el.naturalWidth, h: el.naturalHeight });
+    setMeasured({ w: el.naturalWidth, h: el.naturalHeight });
   };
   const scale = natural.w ? box.w / natural.w : 0;
   const click = (e) => {
@@ -46,8 +45,9 @@ function AnchorEditor({ src, width, height, anchorX, anchorY, personHeight, onCh
 
 function TemplateForm({ tpl, scenes, defaultSceneId, onClose, onSaved }) {
   const isNew = !tpl.id;
+  const initialSceneId = tpl.sceneId || defaultSceneId || scenes[0]?.id;
   const [f, setF] = useState({
-    sceneId: tpl.sceneId || defaultSceneId || scenes[0]?.id,
+    sceneId: initialSceneId,
     serviceType: tpl.serviceType || 'CHECKIN',
     title: tpl.title || '',
     intro: tpl.intro || '',
@@ -66,19 +66,12 @@ function TemplateForm({ tpl, scenes, defaultSceneId, onClose, onSaved }) {
     backgroundFrom: '',
   });
   // 同景区中已配置高清背景的模板，可直接复用其背景
-  const bgSources = useLoad(() => get('/admin/templates', { sceneId: tpl.sceneId || defaultSceneId || scenes[0]?.id }), []);
+  const bgSources = useLoad(() => get('/admin/templates', { sceneId: initialSceneId }), []);
   const [files, setFiles] = useState({});
-  const [bgPreview, setBgPreview] = useState(null);
+  const bgPreview = useObjectUrl(files.background);
   const [busy, run] = useBusy();
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   const setFile = (k) => (file) => setFiles((x) => ({ ...x, [k]: file }));
-
-  useEffect(() => {
-    if (!files.background) return setBgPreview(null);
-    const u = URL.createObjectURL(files.background);
-    setBgPreview(u);
-    return () => URL.revokeObjectURL(u);
-  }, [files.background]);
 
   const needsBg = f.serviceType === 'CHECKIN' || f.serviceType === 'OUTFIT_VIDEO';
   const bgSrc = bgPreview || tpl.background;
@@ -98,7 +91,7 @@ function TemplateForm({ tpl, scenes, defaultSceneId, onClose, onSaved }) {
       if (f.ownerId && !tpl.ownerId) fd.append('ownerId', f.ownerId);
       if (publish != null) fd.append('status', publish ? 'ON' : 'OFF');
       Object.entries(files).forEach(([k, file]) => file && fd.append(k, file));
-      const saved = await api(isNew ? '/admin/templates' : `/admin/templates/${tpl.id}`, { method: isNew ? 'POST' : 'PUT', body: fd });
+      const saved = await (isNew ? post('/admin/templates', fd) : put(`/admin/templates/${tpl.id}`, fd));
       toast('模板已保存', 'ok');
       onSaved(saved);
     });
@@ -268,7 +261,7 @@ export default function TemplatesPanel({ sceneId, scenes }) {
     run(async () => {
       if (next === 'ARCHIVED' && !(await confirm({ title: '归档模板', message: '归档后不再展示，历史制作与统计保留。确定归档？', danger: true }))) return;
       await post(`/admin/templates/${t.id}/status`, { status: next });
-      toast({ ON: '已上架', OFF: '已下架', ARCHIVED: '已归档' }[next]);
+      toast(TEMPLATE_STATUS[next].text);
       reload();
     });
 
@@ -344,7 +337,7 @@ export default function TemplatesPanel({ sceneId, scenes }) {
                     {t.likes}/{t.favorites}
                   </td>
                   <td>
-                    <Badge tone={STATUS[t.status][1]}>{STATUS[t.status][0]}</Badge>
+                    <StatusBadge map={TEMPLATE_STATUS} status={t.status} />
                   </td>
                   <td>
                     <div className="row" style={{ gap: 6 }}>

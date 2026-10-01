@@ -1,12 +1,19 @@
 import { useState } from 'react';
-import { api, get, post, put } from '../../api.js';
-import { QUOTA_REASON, SERVICE_META, yuan, yuanPlain } from '../../format.js';
-import { Badge, ErrorBox, ImagePick, Modal, Pager, Spinner, confirm, toast, useBusy, useLoad } from '../../ui.jsx';
+import { post, put } from '../../api.js';
+import { SERVICE_META, yuan, yuanPlain } from '../../format.js';
+import QuotaLogTable from '../../components/QuotaLogTable.jsx';
+import ServiceSettingsFields, { serviceSettingsForm } from '../../components/ServiceSettingsFields.jsx';
+import { Badge, ErrorBox, ImagePick, Modal, Spinner, confirm, toast, useBusy } from '../../ui.jsx';
 
 function ServiceRow({ scene, s, onSaved, buyCount }) {
   const [edit, setEdit] = useState(false);
-  const [vp, setVp] = useState(yuanPlain(s.visitorPrice));
-  const [mp, setMp] = useState(yuanPlain(s.merchantPrice));
+  const [vp, setVp] = useState('');
+  const [mp, setMp] = useState('');
+  const startEdit = () => {
+    setVp(yuanPlain(s.visitorPrice));
+    setMp(yuanPlain(s.merchantPrice));
+    setEdit(true);
+  };
   const [adj, setAdj] = useState('');
   const [busy, run] = useBusy();
   const toggle = () =>
@@ -67,7 +74,7 @@ function ServiceRow({ scene, s, onSaved, buyCount }) {
               购买 {buyCount} 次 · {yuan(s.merchantPrice * buyCount)}
             </button>
           )}
-          <button className="btn btn-ghost btn-xs" onClick={() => setEdit(true)}>
+          <button className="btn btn-ghost btn-xs" onClick={startEdit}>
             修改价格
           </button>
           <input className="input" style={{ width: 100, minHeight: 28, height: 28, padding: '0 8px' }} value={adj} onChange={(e) => setAdj(e.target.value)} placeholder="±次数" aria-label="调整次数" />
@@ -80,54 +87,15 @@ function ServiceRow({ scene, s, onSaved, buyCount }) {
   );
 }
 
-function QuotaLogs({ sceneId }) {
-  const [page, setPage] = useState(1);
-  const { data } = useLoad(() => get(`/admin/scenes/${sceneId}/quota-logs`, { page, size: 8 }), [sceneId, page]);
-  if (!data) return null;
-  return (
-    <>
-      <div className="table-wrap">
-        <table className="table">
-          <tbody>
-            {data.list.map((l) => (
-              <tr key={l.id}>
-                <td className="small">{l.created_at.slice(5, 16)}</td>
-                <td>{l.serviceName}</td>
-                <td>{QUOTA_REASON[l.reason] || l.reason}</td>
-                <td className={`num ${l.delta > 0 ? 'ok' : 'bad'}`}>{l.delta > 0 ? `+${l.delta}` : l.delta}</td>
-                <td className="num">余 {l.balance}</td>
-                <td className="small muted">{l.ref}</td>
-              </tr>
-            ))}
-            {!data.list.length && (
-              <tr>
-                <td className="muted">暂无记录</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <Pager page={data.page} size={data.size} total={data.total} onChange={setPage} />
-    </>
-  );
-}
-
 /** 现场服务设置：联系电话、服务时间、打印开关与取件地点 */
 function ServiceSettings({ scene, onSaved }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(null);
   const [busy, run] = useBusy();
   const start = () => {
-    setF({
-      merchantName: scene.merchantName || '',
-      servicePhone: scene.servicePhone || '',
-      serviceHours: scene.serviceHours || '',
-      printEnabled: !!scene.printEnabled,
-      pickupAddress: scene.pickupAddress || '',
-    });
+    setF(serviceSettingsForm(scene));
     setOpen(true);
   };
-  const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   const save = () =>
     run(async () => {
       if (f.printEnabled && !f.pickupAddress.trim()) return toast('开放打印申请时必须填写取件地点', 'bad');
@@ -160,32 +128,7 @@ function ServiceSettings({ scene, onSaved }) {
       >
         {f && (
           <div className="stack">
-            <div className="field">
-              <label>商户名称</label>
-              <input className="input" maxLength={40} value={f.merchantName} onChange={set('merchantName')} />
-            </div>
-            <div className="form-grid">
-              <div className="field">
-                <label>联系电话（可选）</label>
-                <input className="input" maxLength={30} value={f.servicePhone} onChange={set('servicePhone')} />
-              </div>
-              <div className="field">
-                <label>服务时间</label>
-                <input className="input" maxLength={40} value={f.serviceHours} onChange={set('serviceHours')} placeholder="例如：每天 09:00–18:00" />
-              </div>
-            </div>
-            <p className="small muted">只在现场具备打印与交付能力时开放申请。收到申请后，在打印履约中下载原图，完成实际打印再通知取件。</p>
-            <div className="row-between">
-              <span>开放打印申请</span>
-              <label className="switch">
-                <input type="checkbox" checked={f.printEnabled} onChange={(e) => setF((x) => ({ ...x, printEnabled: e.target.checked }))} />
-                <span />
-              </label>
-            </div>
-            <div className="field">
-              <label>取件地点（开放打印时必填）</label>
-              <input className="input" maxLength={300} value={f.pickupAddress} onChange={set('pickupAddress')} />
-            </div>
+            <ServiceSettingsFields form={f} setForm={setF} />
           </div>
         )}
       </Modal>
@@ -193,16 +136,12 @@ function ServiceSettings({ scene, onSaved }) {
   );
 }
 
-function SceneCard({ scene: initial, onChanged }) {
-  const [scene, setScene] = useState(initial);
+function SceneCard({ scene, onChanged }) {
   const [bindId, setBindId] = useState('');
   const [buyCount, setBuyCount] = useState('10');
   const [showLogs, setShowLogs] = useState(false);
   const [busy, run] = useBusy();
-  const update = (s) => {
-    setScene((old) => ({ ...old, ...s }));
-    onChanged();
-  };
+  const update = () => onChanged();
 
   const toggleScene = () =>
     run(async () => {
@@ -283,20 +222,20 @@ function SceneCard({ scene: initial, onChanged }) {
       </div>
       <div className="grid-3">
         {scene.services.map((s) => (
-          <ServiceRow key={s.type + s.quota + s.enabled + s.visitorPrice + s.merchantPrice} scene={scene} s={s} onSaved={update} buyCount={Math.min(10000, Number(buyCount) || 0)} />
+          <ServiceRow key={s.type} scene={scene} s={s} onSaved={update} buyCount={Math.min(10000, Number(buyCount) || 0)} />
         ))}
       </div>
       <ServiceSettings scene={scene} onSaved={update} />
       <button className="link-btn small" style={{ alignSelf: 'flex-start' }} onClick={() => setShowLogs((v) => !v)}>
         {showLogs ? '收起额度流水' : '查看额度流水 ›'}
       </button>
-      {showLogs && <QuotaLogs sceneId={scene.id} />}
+      {showLogs && <QuotaLogTable path={`/admin/scenes/${scene.id}/quota-logs`} size={8} version={scene.services.map((s) => s.quota).join()} />}
     </div>
   );
 }
 
 function SceneForm({ open, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: '', subtitle: '', city: '', intro: '', sort: '0' });
+  const [form, setForm] = useState({ name: '', subtitle: '', city: '', sort: '0' });
   const [cover, setCover] = useState(null);
   const [busy, run] = useBusy();
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -305,7 +244,7 @@ function SceneForm({ open, onClose, onSaved }) {
       const fd = new FormData();
       Object.entries(form).forEach(([k, v]) => fd.append(k, v));
       if (cover) fd.append('cover', cover);
-      await api('/admin/scenes', { method: 'POST', body: fd });
+      await post('/admin/scenes', fd);
       toast('景区已创建（默认暂停，绑定商户后可恢复）', 'ok');
       onSaved();
     });

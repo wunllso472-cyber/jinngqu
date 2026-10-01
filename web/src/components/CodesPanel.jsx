@@ -1,14 +1,8 @@
 import { useState } from 'react';
 import { get, post } from '../api.js';
 import { useApp } from '../ctx.jsx';
-import { Badge, Empty, ErrorBox, Modal, Pager, Spinner, Tabs, confirm, toast, useBusy, useLoad } from '../ui.jsx';
-
-const CODE_STATUS = {
-  ACTIVE: ['可兑换', 'ok'],
-  REDEEMED: ['已兑换', 'info'],
-  REVOKED: ['已撤销', 'mute'],
-  EXPIRED: ['已过期', 'bad'],
-};
+import { CODE_STATUS, shortTime } from '../format.js';
+import { Empty, ErrorBox, Modal, Pager, Spinner, StatusBadge, Tabs, confirm, toast, useBusy, useLoad } from '../ui.jsx';
 
 /** 兑换码：批量生成（明文只显示一次）、列表、撤销 */
 export default function CodesPanel({ sceneId }) {
@@ -82,7 +76,7 @@ export default function CodesPanel({ sceneId }) {
           setStatus(v);
           setPage(1);
         }}
-        items={[{ value: '', label: '全部' }, ...Object.entries(CODE_STATUS).map(([k, [t]]) => ({ value: k, label: t }))]}
+        items={[{ value: '', label: '全部' }, ...Object.entries(CODE_STATUS).map(([k, { text }]) => ({ value: k, label: text }))]}
       />
       {loading && !data ? (
         <Spinner />
@@ -111,11 +105,11 @@ export default function CodesPanel({ sceneId }) {
                   <td className="small">****-{x.tail}</td>
                   <td className="num">{x.points}</td>
                   <td>
-                    <Badge tone={CODE_STATUS[x.status][1]}>{CODE_STATUS[x.status][0]}</Badge>
+                    <StatusBadge map={CODE_STATUS} status={x.status} />
                   </td>
                   <td className="small muted">{x.batchNo}</td>
                   {isAdmin && <td className="small">发行者 #{x.issuer?.id}</td>}
-                  <td className="small">{x.redeemedBy ? `用户 #${x.redeemedBy.id} · ${x.redeemedAt.slice(5, 16)}` : '-'}</td>
+                  <td className="small">{x.redeemedBy ? `用户 #${x.redeemedBy.id} · ${shortTime(x.redeemedAt)}` : '-'}</td>
                   <td className="small">{x.expiresAt.slice(0, 16)}</td>
                   <td>
                     {['ACTIVE', 'EXPIRED'].includes(x.status) && (

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, get, post } from '../api.js';
+import { get, post } from '../api.js';
 import { SERVICE_META, yuan } from '../format.js';
 import CharacterForm from '../components/CharacterForm.jsx';
 import { ErrorBox, Header, ImagePick, Modal, Spinner, toast, useBusy, useLoad } from '../ui.jsx';
@@ -34,7 +34,7 @@ export default function Create() {
       if (needBase) {
         const fd = new FormData();
         fd.append('file', ownBase);
-        baseUploadId = (await api('/uploads/base', { method: 'POST', body: fd })).id;
+        baseUploadId = (await post('/uploads/base', fd)).id;
       }
       const o = await post('/orders', { templateId: t.id, characterId: selected, baseUploadId, consent: true });
       setOrder(o);

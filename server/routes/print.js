@@ -2,15 +2,17 @@
 // 应用不收取打印费用，也不控制打印机；费用与取件时间由现场商户确认。
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import { all, one, run, scalar, tx } from '../db.js';
-import { requireAuth } from '../auth.js';
+import { one, run, tx } from '../db.js';
+import { requireAuth, requireRole } from '../auth.js';
+import { userBrief } from '../domain.js';
 import { fileUrl } from '../storage.js';
-import { audit, bad, conflict, forbidden, h, intIn, notFound, now, page, serialNo, str } from '../util.js';
+import { audit, bad, conflict, forbidden, h, intIn, notFound, now, paged, serialNo, str } from '../util.js';
 
 const r = Router();
 r.use(requireAuth);
 
 export const PAPERS = ['6寸', '7寸'];
+const PRINT_STATUSES = ['PENDING', 'READY', 'PICKED', 'CANCELLED'];
 
 export function printView(p, { staff = false } = {}) {
   const o = one('SELECT id, order_no, template_id, result_key, result_kind, service_type FROM orders WHERE id = ?', p.order_id);
@@ -37,8 +39,7 @@ export function printView(p, { staff = false } = {}) {
     pickedAt: p.picked_at,
   };
   if (staff) {
-    const u = one('SELECT id, username, nickname FROM users WHERE id = ?', p.user_id);
-    view.user = u && { id: u.id, username: u.username, nickname: u.nickname };
+    view.user = userBrief(p.user_id);
     view.resultUrl = o?.result_kind === 'image' ? fileUrl(o.result_key) : null;
   }
   return view;
@@ -64,17 +65,13 @@ r.get('/order/:orderId', (req, res) => {
 });
 
 r.get('/', (req, res) => {
-  const { size, offset, page: p } = page(req);
   const where = ['user_id = ?'];
   const params = [req.user.id];
-  if (['PENDING', 'READY', 'PICKED', 'CANCELLED'].includes(req.query.status)) {
+  if (PRINT_STATUSES.includes(req.query.status)) {
     where.push('status = ?');
     params.push(req.query.status);
   }
-  const w = where.join(' AND ');
-  const total = scalar(`SELECT COUNT(*) FROM print_requests WHERE ${w}`, ...params);
-  const list = all(`SELECT * FROM print_requests WHERE ${w} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, size, offset);
-  res.json({ list: list.map((x) => printView(x)), total, page: p, size });
+  res.json(paged(req, { from: 'print_requests', where, params, map: (x) => printView(x) }));
 });
 
 r.post(
@@ -161,11 +158,9 @@ r.post(
 
 // ---------- 商户 / 管理员 ----------
 export const printStaff = Router();
-printStaff.use(requireAuth);
-printStaff.use((req, _res, next) => (['merchant', 'admin'].includes(req.user.role) ? next() : next(forbidden())));
+printStaff.use(requireRole('merchant', 'admin'));
 
 printStaff.get('/', (req, res) => {
-  const { size, offset, page: p } = page(req);
   const where = [];
   const params = [];
   if (req.user.role === 'merchant') {
@@ -175,19 +170,19 @@ printStaff.get('/', (req, res) => {
     where.push('scene_id = ?');
     params.push(Number(req.query.sceneId));
   }
-  if (['PENDING', 'READY', 'PICKED', 'CANCELLED'].includes(req.query.status)) {
+  if (PRINT_STATUSES.includes(req.query.status)) {
     where.push('status = ?');
     params.push(req.query.status);
   }
-  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const total = scalar(`SELECT COUNT(*) FROM print_requests ${w}`, ...params);
-  const list = all(
-    `SELECT * FROM print_requests ${w} ORDER BY CASE status WHEN 'PENDING' THEN 0 WHEN 'READY' THEN 1 ELSE 2 END, id DESC LIMIT ? OFFSET ?`,
-    ...params,
-    size,
-    offset,
+  res.json(
+    paged(req, {
+      from: 'print_requests',
+      where,
+      params,
+      order: "CASE status WHEN 'PENDING' THEN 0 WHEN 'READY' THEN 1 ELSE 2 END, id DESC",
+      map: (x) => printView(x, { staff: true }),
+    }),
   );
-  res.json({ list: list.map((x) => printView(x, { staff: true })), total, page: p, size });
 });
 
 function staffLoad(req) {

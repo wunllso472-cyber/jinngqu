@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { del, get } from '../api.js';
+import { get } from '../api.js';
 import { useApp } from '../ctx.jsx';
-import { ORDER_STATUS, ROLE_NAMES } from '../format.js';
+import { ORDER_STATUS, ROLE_NAMES, shortTime } from '../format.js';
 import { openLogin } from '../components/LoginModal.jsx';
-import CharacterForm from '../components/CharacterForm.jsx';
+import CharacterList from '../components/CharacterList.jsx';
 import { Badge, Empty, ErrorBox, Pager, Spinner, StatusBadge, Tabs, confirm, downloadFile, toast, useBusy, useLoad } from '../ui.jsx';
 
 const ICONS = [
@@ -60,7 +60,7 @@ function MyWorks() {
                 <div className="cap row-between">
                   <div className="grow">
                     <div className="ellipsis">{o.templateTitle}</div>
-                    <div className="muted small">{['QUEUED', 'PROCESSING'].includes(o.status) ? `${o.progress}% · ${o.stage}` : o.createdAt.slice(5, 16)}</div>
+                    <div className="muted small">{['QUEUED', 'PROCESSING'].includes(o.status) ? `${o.progress}% · ${o.stage}` : shortTime(o.createdAt)}</div>
                   </div>
                   {o.status === 'SUCCESS' && (
                     <button className="btn btn-ghost btn-xs" onClick={() => downloadFile(o.resultUrl)}>
@@ -79,53 +79,13 @@ function MyWorks() {
 }
 
 function MyTemplates() {
-  const { data, error, loading, reload, setData } = useLoad(() => get('/characters'), []);
   const [adding, setAdding] = useState(false);
-  const [busy, run] = useBusy();
-  const remove = (c) =>
-    run(async () => {
-      if (!(await confirm({ title: '删除人物模板', message: '删除后，已上传的身体和人脸照片也会被清理。确定删除吗？', danger: true, okText: '删除' }))) return;
-      await del(`/characters/${c.id}`);
-      setData((l) => l.filter((x) => x.id !== c.id));
-      toast('已删除');
-    });
   return (
     <div className="stack">
       <button className="btn btn-ghost" onClick={() => setAdding(true)}>
         ＋ 上传人物模板
       </button>
-      {loading && !data ? (
-        <Spinner />
-      ) : error ? (
-        <ErrorBox error={error} onRetry={reload} />
-      ) : !data.length ? (
-        <Empty text="还没有人物模板" />
-      ) : (
-        <div className="works-grid">
-          {data.map((c) => (
-            <div key={c.id} className="work">
-              <img src={c.bodyImage} alt={c.name} />
-              <div className="cap row-between">
-                <div className="grow">
-                  <div className="ellipsis">{c.name}</div>
-                  <div className="muted small">{c.faceImage ? '身体照 + 人脸照' : '身体照'}</div>
-                </div>
-                <button className="btn btn-danger btn-xs" onClick={() => remove(c)} disabled={busy}>
-                  删除
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <CharacterForm
-        open={adding}
-        onClose={() => setAdding(false)}
-        onCreated={(c) => {
-          setAdding(false);
-          setData((l) => [c, ...(l || [])]);
-        }}
-      />
+      <CharacterList adding={adding} onAddingChange={setAdding} />
     </div>
   );
 }

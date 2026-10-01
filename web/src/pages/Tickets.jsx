@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { get, post } from '../api.js';
 import { useApp } from '../ctx.jsx';
-import { ROLE_NAMES, TICKET_STATUS } from '../format.js';
-import { Empty, ErrorBox, Header, Pager, Spinner, StatusBadge, Tabs, confirm, toast, useBusy, useLoad } from '../ui.jsx';
+import { ROLE_NAMES, TICKET_STATUS, shortTime } from '../format.js';
+import { Empty, ErrorBox, Header, Modal, Pager, Spinner, StatusBadge, Tabs, confirm, toast, useBusy, useLoad } from '../ui.jsx';
 
 /** 工单列表，scope=mine（游客）或 handle（商户/管理员处理） */
 export function TicketTable({ scope = 'mine', sceneId, onOpen }) {
@@ -48,7 +48,7 @@ export function TicketTable({ scope = 'mine', sceneId, onOpen }) {
               <div className="small muted" style={{ marginTop: 4 }}>
                 {scope === 'handle' && `${t.user?.nickname || t.user?.username} · `}
                 {t.scene?.name || '平台'}
-                {t.order && ` · 订单 ${t.order.orderNo}`} · {t.handler === 'merchant' ? '商户处理' : '平台客服'} · {t.updatedAt.slice(5, 16)}
+                {t.order && ` · 订单 ${t.order.orderNo}`} · {t.handler === 'merchant' ? '商户处理' : '平台客服'} · {shortTime(t.updatedAt)}
               </div>
             </button>
           ))
@@ -56,6 +56,28 @@ export function TicketTable({ scope = 'mine', sceneId, onOpen }) {
       </div>
       {data && <Pager page={data.page} size={data.size} total={data.total} onChange={setPage} />}
     </div>
+  );
+}
+
+/** 工单处理台：商户处理本景区工单，管理员可按景区筛选；关闭详情后刷新列表 */
+export function TicketDesk({ sceneId }) {
+  const [openId, setOpenId] = useState(null);
+  const [key, setKey] = useState(0);
+  return (
+    <>
+      <TicketTable key={`${key}-${sceneId}`} scope="handle" sceneId={sceneId} onOpen={(t) => setOpenId(t.id)} />
+      <Modal
+        open={!!openId}
+        wide
+        title="处理工单"
+        onClose={() => {
+          setOpenId(null);
+          setKey((k) => k + 1);
+        }}
+      >
+        {openId && <TicketThread id={openId} />}
+      </Modal>
+    </>
   );
 }
 
@@ -158,7 +180,7 @@ export function TicketThread({ id }) {
           <div key={m.id} className={`msg ${m.mine ? 'mine' : ''}`}>
             {m.content}
             <div className="msg-meta">
-              {m.senderRole === 'visitor' ? '游客留言' : `${ROLE_NAMES[m.senderRole]}回复`} · {m.createdAt.slice(5, 16)}
+              {m.senderRole === 'visitor' ? '游客留言' : `${ROLE_NAMES[m.senderRole]}回复`} · {shortTime(m.createdAt)}
             </div>
           </div>
         ))}

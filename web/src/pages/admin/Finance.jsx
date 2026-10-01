@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { get, post } from '../../api.js';
-import { ORDER_STATUS, PURCHASE_STATUS, SERVICE_META, SERVICE_TYPES, WITHDRAW_STATUS, yuan } from '../../format.js';
+import { ORDER_STATUS, PURCHASE_STATUS, SERVICE_META, SERVICE_TYPES, WITHDRAW_STATUS, shortTime, yuan } from '../../format.js';
 import { Empty, ErrorBox, Modal, Pager, Spinner, StatusBadge, Tabs, confirm, toast, useBusy, useLoad } from '../../ui.jsx';
 
 export function OrdersPanel({ sceneId }) {
@@ -64,7 +64,7 @@ export function OrdersPanel({ sceneId }) {
                       {o.error && <div className="small muted" style={{ maxWidth: 220, whiteSpace: 'normal' }}>{o.error}</div>}
                     </td>
                     <td className="small">{o.provider || '-'}</td>
-                    <td className="small">{o.createdAt.slice(5, 16)}</td>
+                    <td className="small">{shortTime(o.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -111,7 +111,7 @@ export function PurchasesPanel({ sceneId }) {
                 <td>
                   <StatusBadge map={PURCHASE_STATUS} status={p.status} />
                 </td>
-                <td className="small">{p.createdAt.slice(5, 16)}</td>
+                <td className="small">{shortTime(p.createdAt)}</td>
               </tr>
             ))}
           </tbody>
@@ -192,7 +192,7 @@ export function WithdrawalsPanel({ sceneId, onChange }) {
                 <StatusBadge map={WITHDRAW_STATUS} status={w.status} />
               </div>
               <div className="small muted">
-                {w.scene?.name || '-'} · 商户 {w.merchant?.nickname}（#{w.merchant?.id}）· {w.withdrawalNo} · 申请于 {w.createdAt.slice(5, 16)}
+                {w.scene?.name || '-'} · 商户 {w.merchant?.nickname}（#{w.merchant?.id}）· {w.withdrawalNo} · 申请于 {shortTime(w.createdAt)}
               </div>
               <div className="small muted">
                 商户当前：可提现 {yuan(w.wallet.available)} · 冻结 {yuan(w.wallet.frozen)} · 累计打款 {yuan(w.wallet.withdrawn)} · 游客成功消费 {yuan(w.wallet.income)}

@@ -3,11 +3,25 @@ import { Router } from 'express';
 import { all, getSetting, one, run, scalar, setSetting, tx } from '../db.js';
 import { destroyUserSessions, hashPassword, publicUser, requireRole } from '../auth.js';
 import { ROLES, SERVICES, SERVICE_TYPES } from '../constants.js';
-import { adjustQuota, merchantWallet, orderView, sceneView, standardCost, templateView } from '../domain.js';
+import {
+  adjustQuota,
+  createQuotaPurchase,
+  initSceneServices,
+  merchantWallet,
+  orderView,
+  purchaseView,
+  quotaLogPage,
+  sceneView,
+  standardCost,
+  templateUsage,
+  templateView,
+  updateServiceSettings,
+  userBrief,
+  withdrawalView,
+} from '../domain.js';
 import { removeKey, saveImage, saveVideo } from '../storage.js';
-import { audit, bad, conflict, h, intIn, notFound, now, page, parseYuan, serialNo, str } from '../util.js';
+import { audit, bad, conflict, h, intIn, notFound, now, paged, parseYuan, str, yuan } from '../util.js';
 import { firstFile, merchantScene, upload } from './helpers.js';
-import { purchaseView, templateUsage, withdrawalView } from './merchant.js';
 import { PASSWORD_RE, USERNAME_RE } from './auth.js';
 import { config } from '../config.js';
 import { hasFfmpeg } from '../ai/video.js';
@@ -21,37 +35,60 @@ r.get('/overview', (req, res) => {
   const sceneId = req.query.sceneId ? Number(req.query.sceneId) : null;
   const sf = sceneId ? ' AND scene_id = ?' : '';
   const sp = sceneId ? [sceneId] : [];
-  const n = (sql, ...p) => Number(scalar(sql, ...p) || 0);
+  const orderRows = all(
+    `SELECT service_type,
+       COUNT(CASE WHEN status = 'SUCCESS' THEN 1 END) AS success,
+       COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN amount END),0) AS revenue,
+       COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN unit_cost END),0) AS cost,
+       COUNT(CASE WHEN status = 'FAILED' THEN 1 END) AS failed,
+       COALESCE(SUM(CASE WHEN status = 'FAILED' THEN refund_amount END),0) AS refunded,
+       COUNT(CASE WHEN status IN ('QUEUED','PROCESSING') THEN 1 END) AS processing
+     FROM orders WHERE status IN ('QUEUED','PROCESSING','SUCCESS','FAILED')${sf} GROUP BY service_type`,
+    ...sp,
+  );
+  const quotaRows = all(
+    `SELECT service_type, COALESCE(SUM(amount),0) AS quotaSales, COALESCE(SUM(count),0) AS quotaCount
+     FROM quota_purchases WHERE status = 'PAID'${sf} GROUP BY service_type`,
+    ...sp,
+  );
+  const sum = (rows, k) => rows.reduce((acc, x) => acc + x[k], 0);
   const byType = SERVICE_TYPES.map((type) => {
-    const row = one(
-      `SELECT COUNT(*) AS success, COALESCE(SUM(amount),0) AS revenue, COALESCE(SUM(unit_cost),0) AS cost
-       FROM orders WHERE status = 'SUCCESS' AND service_type = ?${sf}`,
+    const o = orderRows.find((x) => x.service_type === type);
+    const q = quotaRows.find((x) => x.service_type === type);
+    return {
       type,
-      ...sp,
-    );
-    const failed = n(`SELECT COUNT(*) FROM orders WHERE status = 'FAILED' AND service_type = ?${sf}`, type, ...sp);
-    const quotaSales = n(`SELECT COALESCE(SUM(amount),0) FROM quota_purchases WHERE status = 'PAID' AND service_type = ?${sf}`, type, ...sp);
-    const quotaCount = n(`SELECT COALESCE(SUM(count),0) FROM quota_purchases WHERE status = 'PAID' AND service_type = ?${sf}`, type, ...sp);
-    return { type, name: SERVICES[type].name, standardCost: standardCost(type), ...row, failed, quotaSales, quotaCount };
+      name: SERVICES[type].name,
+      standardCost: standardCost(type),
+      success: o?.success ?? 0,
+      revenue: o?.revenue ?? 0,
+      cost: o?.cost ?? 0,
+      failed: o?.failed ?? 0,
+      quotaSales: q?.quotaSales ?? 0,
+      quotaCount: q?.quotaCount ?? 0,
+    };
   });
+  const roles = all('SELECT role, COUNT(*) AS n FROM users GROUP BY role');
+  const withdrawals = one(
+    `SELECT COUNT(CASE WHEN status IN ('REQUESTED','APPROVED') THEN 1 END) AS pending,
+            COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount END),0) AS paid
+     FROM withdrawals WHERE 1 = 1${sf}`,
+    ...sp,
+  );
   res.json({
-    users: Object.fromEntries(ROLES.map((role) => [role, n('SELECT COUNT(*) FROM users WHERE role = ?', role)])),
-    scenes: n('SELECT COUNT(*) FROM scenes'),
-    templates: n("SELECT COUNT(*) FROM templates WHERE status = 'ON'"),
+    users: Object.fromEntries(ROLES.map((role) => [role, roles.find((x) => x.role === role)?.n ?? 0])),
+    scenes: scalar('SELECT COUNT(*) FROM scenes'),
+    templates: scalar("SELECT COUNT(*) FROM templates WHERE status = 'ON'"),
     orders: {
-      success: n(`SELECT COUNT(*) FROM orders WHERE status = 'SUCCESS'${sf}`, ...sp),
-      failed: n(`SELECT COUNT(*) FROM orders WHERE status = 'FAILED'${sf}`, ...sp),
-      processing: n(`SELECT COUNT(*) FROM orders WHERE status IN ('QUEUED','PROCESSING')${sf}`, ...sp),
-      revenue: n(`SELECT COALESCE(SUM(amount),0) FROM orders WHERE status = 'SUCCESS'${sf}`, ...sp),
-      refunded: n(`SELECT COALESCE(SUM(refund_amount),0) FROM orders WHERE status = 'FAILED'${sf}`, ...sp),
-      cost: n(`SELECT COALESCE(SUM(unit_cost),0) FROM orders WHERE status = 'SUCCESS'${sf}`, ...sp),
+      success: sum(orderRows, 'success'),
+      failed: sum(orderRows, 'failed'),
+      processing: sum(orderRows, 'processing'),
+      revenue: sum(orderRows, 'revenue'),
+      refunded: sum(orderRows, 'refunded'),
+      cost: sum(orderRows, 'cost'),
     },
-    quotaSales: n(`SELECT COALESCE(SUM(amount),0) FROM quota_purchases WHERE status = 'PAID'${sf}`, ...sp),
-    withdrawals: {
-      pending: n(`SELECT COUNT(*) FROM withdrawals WHERE status IN ('REQUESTED','APPROVED')${sf}`, ...sp),
-      paid: n(`SELECT COALESCE(SUM(amount),0) FROM withdrawals WHERE status = 'PAID'${sf}`, ...sp),
-    },
-    tickets: n(`SELECT COUNT(*) FROM tickets WHERE status = 'PENDING'${sf}`, ...sp),
+    quotaSales: sum(quotaRows, 'quotaSales'),
+    withdrawals,
+    tickets: scalar(`SELECT COUNT(*) FROM tickets WHERE status = 'PENDING'${sf}`, ...sp),
     byType,
     runtime: {
       aiProvider: config.aiProvider,
@@ -78,13 +115,16 @@ function loadScene(req) {
   return s;
 }
 
+const sendScene = (res, id) => res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', id), { withMerchant: true }));
+
 r.post(
   '/scenes',
   upload.fields([{ name: 'cover', maxCount: 1 }]),
   h(async (req, res) => {
     const name = str(req.body?.name, 30);
     if (!name) throw bad('请填写景区名称');
-    const cover = firstFile(req, 'cover') ? (await saveImage(firstFile(req, 'cover'), { scope: 'public', folder: 'scenes', label: '封面' })).key : null;
+    const coverFile = firstFile(req, 'cover');
+    const cover = coverFile ? (await saveImage(coverFile, { scope: 'public', folder: 'scenes', label: '封面' })).key : null;
     const id = tx(() => {
       const sid = run(
         "INSERT INTO scenes (name, subtitle, city, intro, cover, status, sort, created_at) VALUES (?, ?, ?, ?, ?, 'PAUSED', ?, ?)",
@@ -96,19 +136,11 @@ r.post(
         Number(req.body?.sort) || 0,
         now(),
       ).lastInsertRowid;
-      for (const type of SERVICE_TYPES) {
-        run(
-          'INSERT INTO scene_services (scene_id, service_type, enabled, quota, visitor_price, merchant_price) VALUES (?, ?, 1, 0, ?, ?)',
-          sid,
-          type,
-          SERVICES[type].visitorPrice,
-          SERVICES[type].merchantPrice,
-        );
-      }
+      initSceneServices(sid);
       return sid;
     });
     audit(req.user.id, 'SCENE_CREATE', `scene:${id}`, { name });
-    res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', id), { withMerchant: true }));
+    sendScene(res, id);
   }),
 );
 
@@ -117,8 +149,8 @@ r.put(
   upload.fields([{ name: 'cover', maxCount: 1 }]),
   h(async (req, res) => {
     const s = loadScene(req);
-    let cover = s.cover;
-    if (firstFile(req, 'cover')) cover = (await saveImage(firstFile(req, 'cover'), { scope: 'public', folder: 'scenes', label: '封面' })).key;
+    const coverFile = firstFile(req, 'cover');
+    const cover = coverFile ? (await saveImage(coverFile, { scope: 'public', folder: 'scenes', label: '封面' })).key : s.cover;
     run(
       'UPDATE scenes SET name = ?, subtitle = ?, city = ?, intro = ?, cover = ?, sort = ? WHERE id = ?',
       str(req.body?.name, 30) || s.name,
@@ -130,7 +162,7 @@ r.put(
       s.id,
     );
     audit(req.user.id, 'SCENE_UPDATE', `scene:${s.id}`);
-    res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', s.id), { withMerchant: true }));
+    sendScene(res, s.id);
   }),
 );
 
@@ -143,7 +175,7 @@ r.post(
     if (status === 'ACTIVE' && !s.merchant_id) throw conflict('景区尚未绑定商户，不能恢复接单');
     run('UPDATE scenes SET status = ? WHERE id = ?', status, s.id);
     audit(req.user.id, status === 'ACTIVE' ? 'SCENE_RESUME' : 'SCENE_PAUSE', `scene:${s.id}`);
-    res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', s.id), { withMerchant: true }));
+    sendScene(res, s.id);
   }),
 );
 
@@ -176,7 +208,7 @@ r.put(
       type,
     );
     audit(req.user.id, 'SERVICE_UPDATE', `scene:${s.id}:${type}`, { enabled, visitorPrice, merchantPrice });
-    res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', s.id), { withMerchant: true }));
+    sendScene(res, s.id);
   }),
 );
 
@@ -192,7 +224,7 @@ r.post(
     const note = str(req.body?.note, 100);
     tx(() => adjustQuota(s.id, type, delta, 'ADMIN', note || null, req.user.id));
     audit(req.user.id, 'QUOTA_ADJUST', `scene:${s.id}:${type}`, { delta, note });
-    res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', s.id), { withMerchant: true }));
+    sendScene(res, s.id);
   }),
 );
 
@@ -201,20 +233,9 @@ r.put(
   '/scenes/:id/service',
   h(async (req, res) => {
     const s = loadScene(req);
-    const printEnabled = req.body?.printEnabled != null ? (req.body.printEnabled ? 1 : 0) : s.print_enabled;
-    const pickupAddress = str(req.body?.pickupAddress ?? s.pickup_address, 300);
-    if (printEnabled && !pickupAddress) throw bad('开放打印申请时必须填写取件地点');
-    run(
-      'UPDATE scenes SET merchant_name = ?, service_phone = ?, service_hours = ?, print_enabled = ?, pickup_address = ? WHERE id = ?',
-      str(req.body?.merchantName ?? s.merchant_name, 40),
-      str(req.body?.servicePhone ?? s.service_phone, 30),
-      str(req.body?.serviceHours ?? s.service_hours, 40),
-      printEnabled,
-      pickupAddress,
-      s.id,
-    );
+    updateServiceSettings(s, req.body);
     audit(req.user.id, 'SERVICE_SETTINGS', `scene:${s.id}`, req.body);
-    res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', s.id), { withMerchant: true }));
+    sendScene(res, s.id);
   }),
 );
 
@@ -224,30 +245,9 @@ r.post(
   h(async (req, res) => {
     const s = loadScene(req);
     if (!s.merchant_id) throw conflict('景区尚未绑定商户');
-    const type = req.body?.serviceType;
-    if (!SERVICES[type]) throw bad('服务类型不正确');
-    const count = intIn(req.body?.count, 1, 10000);
-    if (!count) throw bad('购买次数须为 1–10000 的整数');
-    const svc = one('SELECT * FROM scene_services WHERE scene_id = ? AND service_type = ?', s.id, type);
-    const no = serialNo('QP');
-    tx(() => {
-      const t = now();
-      run(
-        "INSERT INTO quota_purchases (purchase_no, scene_id, merchant_id, service_type, count, unit_price, amount, status, created_at, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'PAID', ?, ?)",
-        no,
-        s.id,
-        s.merchant_id,
-        type,
-        count,
-        svc.merchant_price,
-        svc.merchant_price * count,
-        t,
-        t,
-      );
-      adjustQuota(s.id, type, count, 'PURCHASE', no, req.user.id);
-    });
-    audit(req.user.id, 'QUOTA_PURCHASE_PAID', no, { type, count, byAdmin: true });
-    res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', s.id), { withMerchant: true }));
+    const p = createQuotaPurchase(s, s.merchant_id, req.body, { paid: true, actorId: req.user.id });
+    audit(req.user.id, 'QUOTA_PURCHASE_PAID', p.purchase_no, { type: p.service_type, count: p.count, byAdmin: true });
+    sendScene(res, s.id);
   }),
 );
 
@@ -269,7 +269,7 @@ r.post(
       run('UPDATE scenes SET merchant_id = ?, merchant_name = ? WHERE id = ?', u.id, u.merchant_name || u.nickname || u.username, s.id);
     });
     audit(req.user.id, 'SCENE_BIND', `scene:${s.id}`, { merchantUserId: userId });
-    res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', s.id), { withMerchant: true }));
+    sendScene(res, s.id);
   }),
 );
 
@@ -283,27 +283,21 @@ r.post(
       const w = merchantWallet(s.merchant_id);
       if (w.pendingCount > 0) throw conflict(`还有 ${w.pendingCount} 个制作中的订单，请完成后再解除`);
       if (w.frozen > 0) throw conflict('还有未处理的提现申请，请先审核或驳回');
-      if (w.available > 0) throw conflict(`商户仍有 ¥${(w.available / 100).toFixed(2)} 未提现收入，请结清后再解除`);
+      if (w.available > 0) throw conflict(`商户仍有 ${yuan(w.available)} 未提现收入，请结清后再解除`);
       run("UPDATE scenes SET merchant_id = NULL, status = 'PAUSED' WHERE id = ?", s.id);
       run("UPDATE orders SET status = 'CANCELLED', stage = '商户变更，订单取消' WHERE scene_id = ? AND status = 'PENDING'", s.id);
     });
     audit(req.user.id, 'SCENE_UNBIND', `scene:${s.id}`, { merchantUserId: s.merchant_id });
-    res.json(sceneView(one('SELECT * FROM scenes WHERE id = ?', s.id), { withMerchant: true }));
+    sendScene(res, s.id);
   }),
 );
 
 r.get('/scenes/:id/template-usage', (req, res) => {
-  const s = loadScene(req);
-  const days = [0, 7, 30, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
-  res.json(templateUsage(s.id, days));
+  res.json(templateUsage(loadScene(req).id, req.query.days));
 });
 
 r.get('/scenes/:id/quota-logs', (req, res) => {
-  const s = loadScene(req);
-  const { size, offset, page: p } = page(req);
-  const total = scalar('SELECT COUNT(*) FROM quota_logs WHERE scene_id = ?', s.id);
-  const list = all('SELECT * FROM quota_logs WHERE scene_id = ? ORDER BY id DESC LIMIT ? OFFSET ?', s.id, size, offset);
-  res.json({ list: list.map((l) => ({ ...l, serviceName: SERVICES[l.service_type]?.name })), total, page: p, size });
+  res.json(quotaLogPage(req, loadScene(req).id));
 });
 
 // ---------- 模板 ----------
@@ -311,26 +305,30 @@ r.get('/templates', (req, res) => {
   const where = [];
   const params = [];
   if (req.query.sceneId) {
-    where.push('scene_id = ?');
+    where.push('t.scene_id = ?');
     params.push(Number(req.query.sceneId));
   }
   if (SERVICES[req.query.type]) {
-    where.push('service_type = ?');
+    where.push('t.service_type = ?');
     params.push(req.query.type);
   }
   if (['ON', 'OFF', 'ARCHIVED'].includes(req.query.status)) {
-    where.push('status = ?');
+    where.push('t.status = ?');
     params.push(req.query.status);
   } else {
-    where.push("status != 'ARCHIVED'");
+    where.push("t.status != 'ARCHIVED'");
   }
   const q = str(req.query.q, 40);
   if (q) {
-    where.push('title LIKE ?');
+    where.push('t.title LIKE ?');
     params.push(`%${q}%`);
   }
-  const rows = all(`SELECT * FROM templates WHERE ${where.join(' AND ')} ORDER BY scene_id, service_type, featured DESC, sort DESC, id DESC`, ...params);
-  res.json(rows.map((t) => ({ ...templateView(t, null, { admin: true }), sceneName: one('SELECT name FROM scenes WHERE id = ?', t.scene_id)?.name })));
+  const rows = all(
+    `SELECT t.*, s.name AS scene_name FROM templates t LEFT JOIN scenes s ON s.id = t.scene_id
+     WHERE ${where.join(' AND ')} ORDER BY t.scene_id, t.service_type, t.featured DESC, t.sort DESC, t.id DESC`,
+    ...params,
+  );
+  res.json(rows.map((t) => ({ ...templateView(t, null, { admin: true }), sceneName: t.scene_name })));
 });
 
 const templateUpload = upload.fields([
@@ -343,13 +341,14 @@ const templateUpload = upload.fields([
 async function applyTemplateFiles(req, current = {}) {
   const out = {};
   const opts = { scope: 'public', folder: 'templates', maxBytes: 12 * 1024 * 1024 };
-  if (firstFile(req, 'cover')) out.cover = (await saveImage(firstFile(req, 'cover'), { ...opts, maxSide: 1600, label: '封面' })).key;
-  if (firstFile(req, 'background')) {
-    const bg = await saveImage(firstFile(req, 'background'), { ...opts, maxSide: 4096, label: '高清背景' });
+  const [cover, background, baseImage, sampleVideo] = ['cover', 'background', 'baseImage', 'sampleVideo'].map((f) => firstFile(req, f));
+  if (cover) out.cover = (await saveImage(cover, { ...opts, maxSide: 1600, label: '封面' })).key;
+  if (background) {
+    const bg = await saveImage(background, { ...opts, maxSide: 4096, label: '高清背景' });
     Object.assign(out, { background: bg.key, bg_width: bg.width, bg_height: bg.height });
   }
-  if (firstFile(req, 'baseImage')) out.base_image = (await saveImage(firstFile(req, 'baseImage'), { ...opts, label: '白模场景图' })).key;
-  if (firstFile(req, 'sampleVideo')) out.sample_video = await saveVideo(firstFile(req, 'sampleVideo'), { scope: 'public', folder: 'templates' });
+  if (baseImage) out.base_image = (await saveImage(baseImage, { ...opts, label: '白模场景图' })).key;
+  if (sampleVideo) out.sample_video = await saveVideo(sampleVideo, { scope: 'public', folder: 'templates' });
   for (const k of ['cover', 'background', 'base_image', 'sample_video']) {
     // 背景可能被其他模板复用，仍被引用时不删除
     const shared = k === 'background' && current[k] && scalar('SELECT COUNT(*) FROM templates WHERE background = ? AND id != ?', current[k], current.id ?? 0) > 0;
@@ -463,7 +462,6 @@ r.post(
 
 // ---------- 账号与角色 ----------
 r.get('/users', (req, res) => {
-  const { size, offset, page: p } = page(req);
   const where = [];
   const params = [];
   if (ROLES.includes(req.query.role)) {
@@ -475,17 +473,21 @@ r.get('/users', (req, res) => {
     where.push('(username LIKE ? OR nickname LIKE ? OR CAST(id AS TEXT) = ?)');
     params.push(`%${q}%`, `%${q}%`, q);
   }
-  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const total = scalar(`SELECT COUNT(*) FROM users ${w}`, ...params);
-  const list = all(`SELECT * FROM users ${w} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, size, offset).map((u) => {
-    const scene = merchantScene(u.id);
-    return {
-      ...publicUser(u),
-      scene: scene && { id: scene.id, name: scene.name },
-      orders: scalar("SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'SUCCESS'", u.id),
-    };
-  });
-  res.json({ list, total, page: p, size });
+  res.json(
+    paged(req, {
+      from: 'users',
+      where,
+      params,
+      map: (u) => {
+        const scene = merchantScene(u.id);
+        return {
+          ...publicUser(u),
+          scene: scene && { id: scene.id, name: scene.name },
+          orders: scalar("SELECT COUNT(*) FROM orders WHERE user_id = ? AND status = 'SUCCESS'", u.id),
+        };
+      },
+    }),
+  );
 });
 
 r.post(
@@ -497,11 +499,12 @@ r.post(
     if (!USERNAME_RE.test(username) || !PASSWORD_RE.test(password)) {
       throw bad('账号须为2–20位字母、数字或下划线；密码须为8–20位并包含字母和数字');
     }
+    const passwordHash = await hashPassword(password);
     if (one('SELECT 1 FROM users WHERE username = ?', username)) throw conflict('账号已存在');
     const id = run(
       "INSERT INTO users (username, password_hash, nickname, role, status, created_at) VALUES (?, ?, ?, ?, 'ENABLED', ?)",
       username,
-      hashPassword(password),
+      passwordHash,
       str(req.body?.nickname, 20) || username,
       role,
       now(),
@@ -526,13 +529,20 @@ r.put(
     if (scene && status === 'DISABLED') throw conflict(`该账号绑定了景区「${scene.name}」，请先解除绑定再停用`);
     const nickname = req.body?.nickname != null ? str(req.body.nickname, 20) || u.username : u.nickname;
     const merchantName = req.body?.merchantName != null ? str(req.body.merchantName, 40) : u.merchant_name;
-    run('UPDATE users SET merchant_name = ? WHERE id = ?', merchantName, u.id);
     let passwordHash = u.password_hash;
     if (req.body?.password) {
       if (!PASSWORD_RE.test(req.body.password)) throw bad('密码须为8–20位并包含字母和数字');
-      passwordHash = hashPassword(req.body.password);
+      passwordHash = await hashPassword(req.body.password);
     }
-    run('UPDATE users SET role = ?, status = ?, nickname = ?, password_hash = ? WHERE id = ?', role, status, nickname, passwordHash, u.id);
+    run(
+      'UPDATE users SET role = ?, status = ?, nickname = ?, merchant_name = ?, password_hash = ? WHERE id = ?',
+      role,
+      status,
+      nickname,
+      merchantName,
+      passwordHash,
+      u.id,
+    );
     if (status === 'DISABLED' || role !== u.role || passwordHash !== u.password_hash) destroyUserSessions(u.id);
     audit(req.user.id, 'USER_UPDATE', `user:${u.id}`, { role, status, passwordReset: passwordHash !== u.password_hash });
     res.json(publicUser(one('SELECT * FROM users WHERE id = ?', u.id)));
@@ -541,7 +551,6 @@ r.put(
 
 // ---------- 流水 ----------
 r.get('/orders', (req, res) => {
-  const { size, offset, page: p } = page(req);
   const where = [];
   const params = [];
   if (req.query.sceneId) {
@@ -561,34 +570,23 @@ r.get('/orders', (req, res) => {
     where.push('(order_no LIKE ? OR user_id IN (SELECT id FROM users WHERE username LIKE ?))');
     params.push(`%${q}%`, `%${q}%`);
   }
-  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const total = scalar(`SELECT COUNT(*) FROM orders ${w}`, ...params);
-  const list = all(`SELECT * FROM orders ${w} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, size, offset);
-  res.json({ list: list.map((o) => orderView(o, { withUser: true })), total, page: p, size });
+  res.json(paged(req, { from: 'orders', where, params, map: (o) => orderView(o, { audience: 'admin' }) }));
 });
 
 r.get('/purchases', (req, res) => {
-  const { size, offset, page: p } = page(req);
-  const where = [];
-  const params = [];
-  if (req.query.sceneId) {
-    where.push('scene_id = ?');
-    params.push(Number(req.query.sceneId));
-  }
-  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const total = scalar(`SELECT COUNT(*) FROM quota_purchases ${w}`, ...params);
-  const list = all(`SELECT * FROM quota_purchases ${w} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, size, offset);
-  res.json({
-    list: list.map((x) => ({ ...purchaseView(x), merchant: one('SELECT id, username, nickname FROM users WHERE id = ?', x.merchant_id) })),
-    total,
-    page: p,
-    size,
-  });
+  const sceneId = req.query.sceneId ? Number(req.query.sceneId) : null;
+  res.json(
+    paged(req, {
+      from: 'quota_purchases',
+      where: sceneId ? ['scene_id = ?'] : [],
+      params: sceneId ? [sceneId] : [],
+      map: (x) => ({ ...purchaseView(x), merchant: userBrief(x.merchant_id) }),
+    }),
+  );
 });
 
 // ---------- 提现审核 ----------
 r.get('/withdrawals', (req, res) => {
-  const { size, offset, page: p } = page(req);
   const where = [];
   const params = [];
   if (req.query.sceneId) {
@@ -600,10 +598,17 @@ r.get('/withdrawals', (req, res) => {
     where.push('status = ?');
     params.push(req.query.status);
   }
-  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const total = scalar(`SELECT COUNT(*) FROM withdrawals ${w}`, ...params);
-  const list = all(`SELECT * FROM withdrawals ${w} ORDER BY CASE status WHEN 'REQUESTED' THEN 0 WHEN 'APPROVED' THEN 1 ELSE 2 END, id DESC LIMIT ? OFFSET ?`, ...params, size, offset);
-  res.json({ list: list.map((x) => ({ ...withdrawalView(x), wallet: merchantWallet(x.merchant_id) })), total, page: p, size });
+  const wallets = new Map();
+  const walletOf = (id) => wallets.get(id) ?? wallets.set(id, merchantWallet(id)).get(id);
+  res.json(
+    paged(req, {
+      from: 'withdrawals',
+      where,
+      params,
+      order: "CASE status WHEN 'REQUESTED' THEN 0 WHEN 'APPROVED' THEN 1 ELSE 2 END, id DESC",
+      map: (x) => ({ ...withdrawalView(x), wallet: walletOf(x.merchant_id) }),
+    }),
+  );
 });
 
 function transition(action, from, to, needNote = false) {
@@ -664,14 +669,7 @@ r.put(
 );
 
 r.get('/audit', (req, res) => {
-  const { size, offset, page: p } = page(req, 30);
-  const total = scalar('SELECT COUNT(*) FROM audit_logs');
-  const list = all(
-    `SELECT a.*, u.username FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id ORDER BY a.id DESC LIMIT ? OFFSET ?`,
-    size,
-    offset,
-  );
-  res.json({ list, total, page: p, size });
+  res.json(paged(req, { from: 'audit_logs a LEFT JOIN users u ON u.id = a.actor_id', select: 'a.*, u.username', order: 'a.id DESC', size: 30 }));
 });
 
 export default r;
