@@ -124,7 +124,8 @@ export async function seed({ log = console.log } = {}) {
   const { db, run, one, tx } = await import('./db.js');
   const { hashPassword } = await import('./auth.js');
   const { saveBuffer, copyFileIn } = await import('./storage.js');
-  const { SERVICES, SERVICE_TYPES } = await import('./constants.js');
+  const { SERVICE_TYPES } = await import('./constants.js');
+  const { adjustQuota, initSceneServices } = await import('./domain.js');
   const { landscapeSvg } = await import('./seed-art.js');
   const { now } = await import('./util.js');
 
@@ -145,7 +146,7 @@ export async function seed({ log = console.log } = {}) {
     userIds[a.username] = run(
       "INSERT INTO users (username, password_hash, nickname, role, status, merchant_name, created_at) VALUES (?, ?, ?, ?, 'ENABLED', ?, ?)",
       a.username,
-      hashPassword(a.password),
+      await hashPassword(a.password),
       a.nickname,
       a.role,
       a.role === 'merchant' ? a.nickname : '',
@@ -219,26 +220,10 @@ export async function seed({ log = console.log } = {}) {
         s.sort,
         t,
       ).lastInsertRowid;
+      initSceneServices(sceneId);
       for (const type of SERVICE_TYPES) {
         const quota = s.quota?.[type] ?? 0;
-        run(
-          'INSERT INTO scene_services (scene_id, service_type, enabled, quota, visitor_price, merchant_price) VALUES (?, ?, 1, ?, ?, ?)',
-          sceneId,
-          type,
-          quota,
-          SERVICES[type].visitorPrice,
-          SERVICES[type].merchantPrice,
-        );
-        if (quota) {
-          run(
-            "INSERT INTO quota_logs (scene_id, service_type, delta, balance, reason, ref, created_at) VALUES (?, ?, ?, ?, 'ADMIN', '初始化赠送', ?)",
-            sceneId,
-            type,
-            quota,
-            quota,
-            t,
-          );
-        }
+        if (quota) adjustQuota(sceneId, type, quota, 'ADMIN', '初始化赠送');
       }
       templates.forEach((tp, i) => {
         const hasBg = !!tp.background;

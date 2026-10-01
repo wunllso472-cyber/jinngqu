@@ -37,6 +37,26 @@ export const TICKET_STATUS = {
   CLOSED: { text: '已关闭', tone: 'mute' },
 };
 
+export const PRINT_STATUS = {
+  PENDING: { text: '待商户处理', tone: 'warn' },
+  READY: { text: '可取件', tone: 'ok' },
+  PICKED: { text: '已取件', tone: 'mute' },
+  CANCELLED: { text: '已取消', tone: 'mute' },
+};
+
+export const CODE_STATUS = {
+  ACTIVE: { text: '可兑换', tone: 'ok' },
+  REDEEMED: { text: '已兑换', tone: 'info' },
+  REVOKED: { text: '已撤销', tone: 'mute' },
+  EXPIRED: { text: '已过期', tone: 'bad' },
+};
+
+export const TEMPLATE_STATUS = {
+  ON: { text: '已上架', tone: 'ok' },
+  OFF: { text: '已下架', tone: 'mute' },
+  ARCHIVED: { text: '已归档', tone: 'bad' },
+};
+
 export const ROLE_NAMES = { visitor: '游客', merchant: '商户', admin: '管理员' };
 
 export const QUOTA_REASON = { PURCHASE: '购买', CONSUME: '制作扣除', REFUND: '失败回补', ADMIN: '管理员调整' };

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { get, post, put } from '../../api.js';
-import { ROLE_NAMES } from '../../format.js';
+import { ROLE_NAMES, shortTime } from '../../format.js';
 import { Badge, ErrorBox, Modal, Pager, Spinner, Tabs, toast, useBusy, useLoad } from '../../ui.jsx';
 
 /** 给商户分配兑换码发放额度（积分点数） */
@@ -182,7 +182,7 @@ export default function UsersPanel() {
                       {u.role === 'merchant' && <span className="muted small"> / {u.codeQuota}</span>}
                     </td>
                     <td>{u.status === 'ENABLED' ? <Badge tone="ok">启用</Badge> : <Badge tone="bad">已停用</Badge>}</td>
-                    <td className="small">{u.lastLoginAt?.slice(5, 16) || '-'}</td>
+                    <td className="small">{shortTime(u.lastLoginAt) || '-'}</td>
                     <td>
                       <button className="btn btn-ghost btn-xs" onClick={() => setEditing(u)}>
                         编辑

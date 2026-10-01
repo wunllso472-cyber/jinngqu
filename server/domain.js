@@ -1,12 +1,27 @@
 // 领域逻辑：景区服务可用性、订单序列化、商户钱包、额度变动、退款
-import { all, getSetting, one, run, scalar, tx } from './db.js';
+import { all, getSetting, one, run, tx } from './db.js';
 import { SERVICES, SERVICE_TYPES, LOW_QUOTA } from './constants.js';
 import { fileUrl } from './storage.js';
-import { bad, conflict, now } from './util.js';
+import { bad, conflict, dateOnly, intIn, now, paged, serialNo, str } from './util.js';
+
+export const userBrief = (id) => one('SELECT id, username, nickname FROM users WHERE id = ?', id);
 
 export function standardCost(type) {
   const v = getSetting(`cost.${type}`);
   return v == null ? SERVICES[type].standardCost : Number(v);
+}
+
+/** 新景区：为每种服务写入默认配置 */
+export function initSceneServices(sceneId) {
+  for (const type of SERVICE_TYPES) {
+    run(
+      'INSERT INTO scene_services (scene_id, service_type, enabled, quota, visitor_price, merchant_price) VALUES (?, ?, 1, 0, ?, ?)',
+      sceneId,
+      type,
+      SERVICES[type].visitorPrice,
+      SERVICES[type].merchantPrice,
+    );
+  }
 }
 
 export function sceneServices(sceneId) {
@@ -59,12 +74,59 @@ export function sceneView(scene, { withMerchant = false } = {}) {
     services,
   };
   if (withMerchant) {
-    const m = scene.merchant_id ? one('SELECT id, username, nickname FROM users WHERE id = ?', scene.merchant_id) : null;
-    view.merchant = m ? { id: m.id, username: m.username, nickname: m.nickname } : null;
+    view.merchant = scene.merchant_id ? userBrief(scene.merchant_id) : null;
     view.sort = scene.sort;
   }
   return view;
 }
+
+/** 现场服务设置（联系电话、服务时间、打印开关与取件地点），商户与管理员共用 */
+export function updateServiceSettings(scene, body = {}) {
+  const printEnabled = body.printEnabled != null ? (body.printEnabled ? 1 : 0) : scene.print_enabled;
+  const pickupAddress = str(body.pickupAddress ?? scene.pickup_address, 300);
+  if (printEnabled && !pickupAddress) throw bad('开放打印申请时必须填写取件地点');
+  run(
+    'UPDATE scenes SET merchant_name = ?, service_phone = ?, service_hours = ?, print_enabled = ?, pickup_address = ? WHERE id = ?',
+    str(body.merchantName ?? scene.merchant_name, 40),
+    str(body.servicePhone ?? scene.service_phone, 30),
+    str(body.serviceHours ?? scene.service_hours, 40),
+    printEnabled,
+    pickupAddress,
+    scene.id,
+  );
+}
+
+/** 创建额度购买单；paid 时直接模拟支付并入账（管理员代购） */
+export function createQuotaPurchase(scene, merchantId, body, { paid = false, actorId = null } = {}) {
+  const type = body?.serviceType;
+  if (!SERVICES[type]) throw bad('请选择服务类型');
+  const count = intIn(body?.count, 1, 10000);
+  if (!count) throw bad('购买次数须为 1–10000 的整数');
+  const svc = one('SELECT * FROM scene_services WHERE scene_id = ? AND service_type = ?', scene.id, type);
+  if (!svc) throw bad('景区未开通该服务');
+  const no = serialNo('QP');
+  return tx(() => {
+    const t = now();
+    const id = run(
+      'INSERT INTO quota_purchases (purchase_no, scene_id, merchant_id, service_type, count, unit_price, amount, status, created_at, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      no,
+      scene.id,
+      merchantId,
+      type,
+      count,
+      svc.merchant_price,
+      svc.merchant_price * count,
+      paid ? 'PAID' : 'PENDING',
+      t,
+      paid ? t : null,
+    ).lastInsertRowid;
+    if (paid) adjustQuota(scene.id, type, count, 'PURCHASE', no, actorId);
+    return one('SELECT * FROM quota_purchases WHERE id = ?', id);
+  });
+}
+
+export const quotaLogPage = (req, sceneId) =>
+  paged(req, { from: 'quota_logs', where: ['scene_id = ?'], params: [sceneId], map: (l) => ({ ...l, serviceName: SERVICES[l.service_type]?.name }) });
 
 export function templatePrice(template, sceneId) {
   if (template.price != null) return template.price;
@@ -72,10 +134,22 @@ export function templatePrice(template, sceneId) {
   return s ? s.visitor_price : SERVICES[template.service_type].visitorPrice;
 }
 
+/** 模板的点赞 / 收藏 / 使用数，以及当前用户是否已点赞、收藏（一次查询） */
+export function templateStats(templateId, userId = null) {
+  const s = one(
+    `SELECT (SELECT COUNT(*) FROM likes WHERE template_id = ?1) AS likes,
+            (SELECT COUNT(*) FROM favorites WHERE template_id = ?1) AS favorites,
+            (SELECT COUNT(*) FROM orders WHERE template_id = ?1 AND status = 'SUCCESS') AS uses,
+            EXISTS (SELECT 1 FROM likes WHERE template_id = ?1 AND user_id = ?2) AS liked,
+            EXISTS (SELECT 1 FROM favorites WHERE template_id = ?1 AND user_id = ?2) AS favorited`,
+    templateId,
+    userId,
+  );
+  return { ...s, liked: !!s.liked, favorited: !!s.favorited };
+}
+
 export function templateView(t, userId = null, { admin = false } = {}) {
-  const likes = scalar('SELECT COUNT(*) FROM likes WHERE template_id = ?', t.id);
-  const favorites = scalar('SELECT COUNT(*) FROM favorites WHERE template_id = ?', t.id);
-  const uses = scalar("SELECT COUNT(*) FROM orders WHERE template_id = ? AND status = 'SUCCESS'", t.id);
+  const { likes, favorites, uses, liked, favorited } = templateStats(t.id, userId);
   const view = {
     id: t.id,
     sceneId: t.scene_id,
@@ -97,8 +171,8 @@ export function templateView(t, userId = null, { admin = false } = {}) {
     likes,
     favorites,
     uses,
-    liked: userId ? !!one('SELECT 1 FROM likes WHERE user_id = ? AND template_id = ?', userId, t.id) : false,
-    favorited: userId ? !!one('SELECT 1 FROM favorites WHERE user_id = ? AND template_id = ?', userId, t.id) : false,
+    liked,
+    favorited,
   };
   if (admin) {
     Object.assign(view, {
@@ -118,10 +192,12 @@ export function templateView(t, userId = null, { admin = false } = {}) {
   return view;
 }
 
-export function orderView(o, { withUser = false } = {}) {
+/**
+ * 订单序列化。audience：owner 游客本人；merchant 商户（不含作品原图与人物）；admin 管理员
+ */
+export function orderView(o, { audience = 'owner' } = {}) {
   const t = one('SELECT id, title, cover FROM templates WHERE id = ?', o.template_id);
   const s = one('SELECT id, name FROM scenes WHERE id = ?', o.scene_id);
-  const c = o.character_id ? one('SELECT id, name, body_image FROM characters WHERE id = ?', o.character_id) : null;
   const view = {
     id: o.id,
     orderNo: o.order_no,
@@ -132,53 +208,91 @@ export function orderView(o, { withUser = false } = {}) {
     templateId: o.template_id,
     templateTitle: t?.title,
     templateCover: fileUrl(t?.cover),
-    character: c ? { id: c.id, name: c.name, image: fileUrl(c.body_image) } : null,
     amount: o.amount,
     refundAmount: o.refund_amount,
     status: o.status,
     progress: o.progress,
     stage: o.stage,
     error: o.error,
-    resultUrl: o.status === 'SUCCESS' ? fileUrl(o.result_key) : null,
     resultKind: o.result_kind,
     createdAt: o.created_at,
     paidAt: o.paid_at,
     finishedAt: o.finished_at,
     refundedAt: o.refunded_at,
   };
-  if (withUser) {
-    const u = one('SELECT id, username, nickname FROM users WHERE id = ?', o.user_id);
-    view.user = u ? { id: u.id, username: u.username, nickname: u.nickname } : null;
+  if (audience !== 'merchant') {
+    const c = o.character_id ? one('SELECT id, name, body_image FROM characters WHERE id = ?', o.character_id) : null;
+    view.character = c ? { id: c.id, name: c.name, image: fileUrl(c.body_image) } : null;
+    view.resultUrl = o.status === 'SUCCESS' ? fileUrl(o.result_key) : null;
+  }
+  if (audience !== 'owner') {
+    view.user = userBrief(o.user_id);
     view.merchantId = o.merchant_id;
     view.unitCost = o.unit_cost;
-    view.provider = o.provider;
   }
+  if (audience === 'admin') view.provider = o.provider;
   return view;
 }
 
+export const purchaseView = (p) => ({
+  id: p.id,
+  purchaseNo: p.purchase_no,
+  sceneId: p.scene_id,
+  merchantId: p.merchant_id,
+  serviceType: p.service_type,
+  serviceName: SERVICES[p.service_type]?.name,
+  count: p.count,
+  unitPrice: p.unit_price,
+  amount: p.amount,
+  status: p.status,
+  createdAt: p.created_at,
+  paidAt: p.paid_at,
+});
+
+export const withdrawalView = (w) => ({
+  id: w.id,
+  withdrawalNo: w.withdrawal_no,
+  merchant: userBrief(w.merchant_id),
+  scene: w.scene_id ? one('SELECT id, name FROM scenes WHERE id = ?', w.scene_id) : null,
+  amount: w.amount,
+  note: w.note,
+  status: w.status,
+  reviewNote: w.review_note,
+  createdAt: w.created_at,
+  reviewedAt: w.reviewed_at,
+  paidAt: w.paid_at,
+});
+
 /** 商户钱包（全部为模拟金额，单位分） */
 export function merchantWallet(merchantId) {
-  const sum = (sql, ...p) => Number(scalar(sql, ...p) || 0);
-  const income = sum("SELECT SUM(amount) FROM orders WHERE merchant_id = ? AND status = 'SUCCESS'", merchantId);
-  const pending = sum("SELECT SUM(amount) FROM orders WHERE merchant_id = ? AND status IN ('QUEUED','PROCESSING')", merchantId);
-  const refunded = sum("SELECT SUM(refund_amount) FROM orders WHERE merchant_id = ? AND status = 'FAILED'", merchantId);
-  const frozen = sum("SELECT SUM(amount) FROM withdrawals WHERE merchant_id = ? AND status IN ('REQUESTED','APPROVED')", merchantId);
-  const withdrawn = sum("SELECT SUM(amount) FROM withdrawals WHERE merchant_id = ? AND status = 'PAID'", merchantId);
-  const quotaSpend = sum("SELECT SUM(amount) FROM quota_purchases WHERE merchant_id = ? AND status = 'PAID'", merchantId);
-  const successCount = sum("SELECT COUNT(*) FROM orders WHERE merchant_id = ? AND status = 'SUCCESS'", merchantId);
-  const pendingCount = sum("SELECT COUNT(*) FROM orders WHERE merchant_id = ? AND status IN ('QUEUED','PROCESSING')", merchantId);
-  const refundedCount = sum("SELECT COUNT(*) FROM orders WHERE merchant_id = ? AND status = 'FAILED'", merchantId);
+  const o = one(
+    `SELECT COALESCE(SUM(CASE WHEN status = 'SUCCESS' THEN amount END), 0) AS income,
+            COALESCE(SUM(CASE WHEN status IN ('QUEUED','PROCESSING') THEN amount END), 0) AS pending,
+            COALESCE(SUM(CASE WHEN status = 'FAILED' THEN refund_amount END), 0) AS refunded,
+            COUNT(CASE WHEN status = 'SUCCESS' THEN 1 END) AS successCount,
+            COUNT(CASE WHEN status IN ('QUEUED','PROCESSING') THEN 1 END) AS pendingCount,
+            COUNT(CASE WHEN status = 'FAILED' THEN 1 END) AS refundedCount
+     FROM orders WHERE merchant_id = ?`,
+    merchantId,
+  );
+  const w = one(
+    `SELECT COALESCE(SUM(CASE WHEN status IN ('REQUESTED','APPROVED') THEN amount END), 0) AS frozen,
+            COALESCE(SUM(CASE WHEN status = 'PAID' THEN amount END), 0) AS withdrawn
+     FROM withdrawals WHERE merchant_id = ?`,
+    merchantId,
+  );
+  const quotaSpend = one("SELECT COALESCE(SUM(amount), 0) AS v FROM quota_purchases WHERE merchant_id = ? AND status = 'PAID'", merchantId).v;
   return {
-    income,
-    pending,
-    pendingCount,
-    refunded,
-    refundedCount,
-    frozen,
-    withdrawn,
-    available: income - frozen - withdrawn,
+    income: o.income,
+    pending: o.pending,
+    pendingCount: o.pendingCount,
+    refunded: o.refunded,
+    refundedCount: o.refundedCount,
+    frozen: w.frozen,
+    withdrawn: w.withdrawn,
+    available: o.income - w.frozen - w.withdrawn,
     quotaSpend,
-    successCount,
+    successCount: o.successCount,
   };
 }
 
@@ -220,4 +334,60 @@ export function failAndRefund(orderId, message) {
     adjustQuota(o.scene_id, o.service_type, +1, 'REFUND', o.order_no);
     return true;
   });
+}
+
+// ---------- 模板使用情况 ----------
+const USAGE_DAYS = [0, 7, 30, 90];
+
+/** days 取 0 / 7 / 30 / 90（0 为全部），其他值按 30 天 */
+export function templateUsage(sceneId, daysInput, merchantId = null) {
+  const days = USAGE_DAYS.includes(Number(daysInput)) ? Number(daysInput) : 30;
+  const since = days > 0 ? dateOnly(new Date(Date.now() - (days - 1) * 86400_000)) : '0000-00-00';
+  const mFilter = merchantId ? ' AND o.merchant_id = ?' : '';
+  const mParams = merchantId ? [merchantId] : [];
+  const rows = all(
+    `SELECT t.id, t.title, t.service_type, t.cover, t.status,
+       COALESCE(SUM(CASE WHEN o.status = 'SUCCESS' THEN 1 END), 0) AS success,
+       COALESCE(SUM(CASE WHEN o.status = 'FAILED' THEN 1 END), 0) AS failed,
+       COALESCE(SUM(CASE WHEN o.status IN ('QUEUED','PROCESSING') THEN 1 END), 0) AS processing,
+       COALESCE(SUM(CASE WHEN o.status = 'SUCCESS' THEN o.amount END), 0) AS revenue,
+       COALESCE(SUM(CASE WHEN o.status = 'SUCCESS' THEN o.unit_cost END), 0) AS cost,
+       (SELECT COUNT(*) FROM likes l WHERE l.template_id = t.id) AS likes,
+       (SELECT COUNT(*) FROM favorites f WHERE f.template_id = t.id) AS favorites
+     FROM templates t
+     LEFT JOIN orders o ON o.template_id = t.id AND substr(COALESCE(o.paid_at, o.created_at),1,10) >= ?${mFilter}
+     WHERE t.scene_id = ? AND t.status != 'ARCHIVED'
+     GROUP BY t.id ORDER BY success DESC, t.id`,
+    since,
+    ...mParams,
+    sceneId,
+  );
+  const trend = all(
+    `SELECT substr(o.finished_at,1,10) AS date, COUNT(*) AS success, SUM(o.amount) AS revenue
+     FROM orders o WHERE o.scene_id = ? AND o.status = 'SUCCESS' AND substr(o.finished_at,1,10) >= ?${mFilter}
+     GROUP BY date ORDER BY date`,
+    sceneId,
+    since,
+    ...mParams,
+  );
+  const templates = rows.map((t) => ({
+    id: t.id,
+    title: t.title,
+    serviceType: t.service_type,
+    serviceName: SERVICES[t.service_type]?.name,
+    cover: fileUrl(t.cover),
+    status: t.status,
+    success: t.success,
+    failed: t.failed,
+    processing: t.processing,
+    revenue: t.revenue,
+    cost: t.cost,
+    likes: t.likes,
+    favorites: t.favorites,
+  }));
+  const totals = templates.reduce(
+    (acc, t) => ({ success: acc.success + t.success, failed: acc.failed + t.failed, revenue: acc.revenue + t.revenue, cost: acc.cost + t.cost }),
+    { success: 0, failed: 0, revenue: 0, cost: 0 },
+  );
+  return { since: days > 0 ? since : null, templates, trend, totals };
 }

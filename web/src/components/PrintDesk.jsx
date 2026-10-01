@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { get, post } from '../api.js';
-import { PRINT_STATUS } from '../pages/Prints.jsx';
+import { PRINT_STATUS, shortTime } from '../format.js';
 import { Empty, ErrorBox, Modal, Pager, Spinner, StatusBadge, Tabs, confirm, downloadFile, toast, useBusy, useLoad } from '../ui.jsx';
 
 /** 打印履约：商户处理本景区申请，管理员可按景区查看 */
@@ -76,9 +76,9 @@ export default function PrintDesk({ sceneId }) {
                   {p.user?.nickname}（用户 #{p.user?.id}）· {p.templateTitle} · 订单 {p.orderNo}
                 </div>
                 <div className="small muted">
-                  {p.scene?.name} · 申请于 {p.createdAt.slice(5, 16)}
-                  {p.readyAt && ` · 打印于 ${p.readyAt.slice(5, 16)}`}
-                  {p.pickedAt && ` · 取件于 ${p.pickedAt.slice(5, 16)}`}
+                  {p.scene?.name} · 申请于 {shortTime(p.createdAt)}
+                  {p.readyAt && ` · 打印于 ${shortTime(p.readyAt)}`}
+                  {p.pickedAt && ` · 取件于 ${shortTime(p.pickedAt)}`}
                 </div>
                 {p.note && <div className="small">游客备注：{p.note}</div>}
                 <div className="row wrap">

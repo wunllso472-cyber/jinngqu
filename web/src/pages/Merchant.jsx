@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { get, post, put } from '../api.js';
 import { useApp } from '../ctx.jsx';
-import { ORDER_STATUS, PURCHASE_STATUS, QUOTA_REASON, SERVICE_META, WITHDRAW_STATUS, yuan } from '../format.js';
+import { ORDER_STATUS, PURCHASE_STATUS, SERVICE_META, WITHDRAW_STATUS, shortTime, yuan, yuanPlain } from '../format.js';
 import UsageTable from '../components/UsageTable.jsx';
 import PrintDesk from '../components/PrintDesk.jsx';
 import CodesPanel from '../components/CodesPanel.jsx';
-import { TicketTable, TicketThread } from './Tickets.jsx';
+import QuotaLogTable from '../components/QuotaLogTable.jsx';
+import ServiceSettingsFields, { serviceSettingsForm } from '../components/ServiceSettingsFields.jsx';
+import { TicketDesk } from './Tickets.jsx';
 import { Badge, Empty, ErrorBox, Header, Modal, Pager, Spinner, Stat, StatusBadge, Tabs, confirm, toast, useBusy, useLoad } from '../ui.jsx';
 
 const NAV = [
@@ -26,8 +28,6 @@ function QuotaPanel({ ov, reloadOv }) {
   const [busy, run] = useBusy();
   const [page, setPage] = useState(1);
   const purchases = useLoad(() => get('/merchant/purchases', { page, size: 8 }), [page]);
-  const [logPage, setLogPage] = useState(1);
-  const logs = useLoad(() => get('/merchant/quota-logs', { page: logPage, size: 10 }), [logPage]);
 
   // 按“每次购买数量”直接下单，随后弹出模拟支付
   const quickBuy = (s) =>
@@ -43,7 +43,6 @@ function QuotaPanel({ ov, reloadOv }) {
       setPending(null);
       reloadOv();
       purchases.reload();
-      logs.reload();
     });
   const cancel = (p) =>
     run(async () => {
@@ -136,7 +135,7 @@ function QuotaPanel({ ov, reloadOv }) {
                     <td>
                       <StatusBadge map={PURCHASE_STATUS} status={p.status} />
                     </td>
-                    <td className="small">{p.createdAt.slice(5, 16)}</td>
+                    <td className="small">{shortTime(p.createdAt)}</td>
                     <td>
                       {p.status === 'PENDING' && (
                         <button className="btn btn-primary btn-xs" onClick={() => setPending(p)}>
@@ -154,44 +153,7 @@ function QuotaPanel({ ov, reloadOv }) {
       )}
 
       <h3 className="mt">次数变动明细</h3>
-      {logs.data && (
-        <>
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>时间</th>
-                  <th>服务</th>
-                  <th>类型</th>
-                  <th className="num">变动</th>
-                  <th className="num">余额</th>
-                  <th>关联</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.data.list.map((l) => (
-                  <tr key={l.id}>
-                    <td className="small">{l.created_at.slice(5, 16)}</td>
-                    <td>{l.serviceName}</td>
-                    <td>{QUOTA_REASON[l.reason] || l.reason}</td>
-                    <td className={`num ${l.delta > 0 ? 'ok' : 'bad'}`}>{l.delta > 0 ? `+${l.delta}` : l.delta}</td>
-                    <td className="num">{l.balance}</td>
-                    <td className="small muted">{l.ref}</td>
-                  </tr>
-                ))}
-                {!logs.data.list.length && (
-                  <tr>
-                    <td colSpan={6} className="muted">
-                      暂无记录
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <Pager page={logs.data.page} size={logs.data.size} total={logs.data.total} onChange={setLogPage} />
-        </>
-      )}
+      <QuotaLogTable path="/merchant/quota-logs" version={ov.scene.services.map((s) => s.quota).join()} />
 
       <Modal
         open={!!pending}
@@ -284,7 +246,7 @@ function OrdersPanel() {
                     <td>
                       <StatusBadge map={ORDER_STATUS} status={o.status} />
                     </td>
-                    <td className="small">{(o.paidAt || o.createdAt).slice(5, 16)}</td>
+                    <td className="small">{shortTime(o.paidAt || o.createdAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -358,8 +320,8 @@ function WalletPanel({ reloadOv }) {
                 <StatusBadge map={WITHDRAW_STATUS} status={x.status} />
               </div>
               <div className="small muted" style={{ marginTop: 4 }}>
-                {x.withdrawalNo} · 申请于 {x.createdAt.slice(5, 16)}
-                {x.paidAt && ` · 打款于 ${x.paidAt.slice(5, 16)}`}
+                {x.withdrawalNo} · 申请于 {shortTime(x.createdAt)}
+                {x.paidAt && ` · 打款于 ${shortTime(x.paidAt)}`}
               </div>
               {x.note && <div className="small muted">申请备注：{x.note}</div>}
               {x.reviewNote && <div className="small">审核备注：{x.reviewNote}</div>}
@@ -390,7 +352,7 @@ function WalletPanel({ reloadOv }) {
             <label>提现金额（元）</label>
             <div className="row">
               <input className="input grow" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.trim())} placeholder="例如 10.00" />
-              <button className="btn btn-ghost btn-sm" onClick={() => setAmount((w.available / 100).toFixed(2))}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setAmount(yuanPlain(w.available))}>
                 全部
               </button>
             </div>
@@ -407,15 +369,8 @@ function WalletPanel({ reloadOv }) {
 
 // ---------------- 服务设置 ----------------
 function SettingsPanel({ ov, reloadOv }) {
-  const [form, setForm] = useState({
-    merchantName: ov.scene.merchantName,
-    servicePhone: ov.scene.servicePhone,
-    serviceHours: ov.scene.serviceHours,
-    printEnabled: ov.scene.printEnabled,
-    pickupAddress: ov.scene.pickupAddress || '',
-  });
+  const [form, setForm] = useState(() => serviceSettingsForm(ov.scene));
   const [busy, run] = useBusy();
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const save = () =>
     run(async () => {
       if (form.printEnabled && !form.pickupAddress.trim()) return toast('开放打印申请时必须填写取件地点', 'bad');
@@ -427,57 +382,11 @@ function SettingsPanel({ ov, reloadOv }) {
     <div className="card stack" style={{ maxWidth: 520 }}>
       <h3>现场服务设置</h3>
       <p className="small muted">以下信息展示在景区首页底部，方便游客联系。</p>
-      <div className="field">
-        <label>商户名称</label>
-        <input className="input" maxLength={40} value={form.merchantName} onChange={set('merchantName')} />
-      </div>
-      <div className="field">
-        <label>联系电话</label>
-        <input className="input" maxLength={30} value={form.servicePhone} onChange={set('servicePhone')} />
-      </div>
-      <div className="field">
-        <label>服务时间</label>
-        <input className="input" maxLength={40} value={form.serviceHours} onChange={set('serviceHours')} placeholder="例如：每天 09:00–18:00" />
-      </div>
-      <div className="divider" />
-      <h3>打印服务</h3>
-      <p className="small muted">只在现场具备打印与交付能力时开放申请。收到申请后，在打印履约中下载原图，完成实际打印再通知取件。</p>
-      <div className="row-between">
-        <span>开放打印申请</span>
-        <label className="switch">
-          <input type="checkbox" checked={!!form.printEnabled} onChange={(e) => setForm((f) => ({ ...f, printEnabled: e.target.checked }))} />
-          <span />
-        </label>
-      </div>
-      <div className="field">
-        <label>取件地点（开放打印时必填）</label>
-        <input className="input" maxLength={300} value={form.pickupAddress} onChange={set('pickupAddress')} placeholder="例如：金顶游客中心一楼服务台" />
-      </div>
+      <ServiceSettingsFields form={form} setForm={setForm} />
       <button className="btn btn-primary" onClick={save} disabled={busy}>
         保存设置
       </button>
     </div>
-  );
-}
-
-function TicketsPanel() {
-  const [openId, setOpenId] = useState(null);
-  const [key, setKey] = useState(0);
-  return (
-    <>
-      <TicketTable key={key} scope="handle" onOpen={(t) => setOpenId(t.id)} />
-      <Modal
-        open={!!openId}
-        wide
-        onClose={() => {
-          setOpenId(null);
-          setKey((k) => k + 1);
-        }}
-        title="处理工单"
-      >
-        {openId && <TicketThread id={openId} />}
-      </Modal>
-    </>
   );
 }
 
@@ -519,7 +428,7 @@ export default function Merchant() {
           {tab === 'wallet' && <WalletPanel reloadOv={ov.reload} />}
           {tab === 'prints' && <PrintDesk />}
           {tab === 'codes' && <CodesPanel />}
-          {tab === 'tickets' && <TicketsPanel />}
+          {tab === 'tickets' && <TicketDesk />}
           {tab === 'settings' && <SettingsPanel ov={ov.data} reloadOv={ov.reload} />}
         </main>
       </div>

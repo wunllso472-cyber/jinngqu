@@ -96,4 +96,3 @@ export function stopWorker() {
   timer = null;
 }
 
-export const workerBusy = () => running.size;

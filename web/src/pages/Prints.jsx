@@ -1,14 +1,8 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { get, post, put } from '../api.js';
+import { PRINT_STATUS, shortTime } from '../format.js';
 import { Empty, ErrorBox, Header, Pager, Spinner, StatusBadge, Tabs, confirm, toast, useBusy, useLoad } from '../ui.jsx';
-
-export const PRINT_STATUS = {
-  PENDING: { text: '待商户处理', tone: 'warn' },
-  READY: { text: '可取件', tone: 'ok' },
-  PICKED: { text: '已取件', tone: 'mute' },
-  CANCELLED: { text: '已取消', tone: 'mute' },
-};
 
 /** 订单详情中的打印申请区块 */
 export function PrintApply({ orderId }) {
@@ -122,7 +116,7 @@ export function PrintList() {
                     <StatusBadge map={PRINT_STATUS} status={p.status} />
                   </div>
                   <div className="small muted">
-                    {p.paper} × {p.copies} 份 · {p.scene?.name} · {p.createdAt.slice(5, 16)}
+                    {p.paper} × {p.copies} 份 · {p.scene?.name} · {shortTime(p.createdAt)}
                   </div>
                 </div>
               </button>

@@ -83,13 +83,13 @@ function sign(key, exp) {
   return crypto.createHmac('sha256', config.secret).update(`${key}:${exp}`).digest('base64url').slice(0, 32);
 }
 
-/** 生成可访问的 URL；private 文件附带 2 小时有效期签名 */
+/** 生成可访问的 URL；private 文件附带至少 2 小时有效期签名（到期时间按小时取整，便于浏览器缓存） */
 export function fileUrl(key, ttlSec = 7200) {
   if (!key) return null;
   if (/^https?:\/\//.test(key)) return key;
   if (!isValidKey(key)) return null;
   if (key.startsWith('public/')) return `/files/${key}`;
-  const exp = Math.floor(Date.now() / 1000) + ttlSec;
+  const exp = Math.ceil((Date.now() / 1000 + ttlSec) / 3600) * 3600;
   return `/files/${key}?e=${exp}&s=${sign(key, exp)}`;
 }
 

@@ -1,7 +1,7 @@
 // 游客端：景区、模板、点赞收藏
 import { Router } from 'express';
 import { all, one, run } from '../db.js';
-import { sceneView, templateView } from '../domain.js';
+import { sceneView, templateStats, templateView } from '../domain.js';
 import { SERVICE_TYPES } from '../constants.js';
 import { requireAuth } from '../auth.js';
 import { h, notFound, now, str } from '../util.js';
@@ -54,8 +54,8 @@ function toggle(table) {
     const exists = one(`SELECT 1 FROM ${table} WHERE user_id = ? AND template_id = ?`, req.user.id, templateId);
     if (exists) run(`DELETE FROM ${table} WHERE user_id = ? AND template_id = ?`, req.user.id, templateId);
     else run(`INSERT INTO ${table} (user_id, template_id, created_at) VALUES (?, ?, ?)`, req.user.id, templateId, now());
-    const view = templateView(one('SELECT * FROM templates WHERE id = ?', templateId), req.user.id);
-    res.json({ active: !exists, likes: view.likes, favorites: view.favorites });
+    const { likes, favorites } = templateStats(templateId);
+    res.json({ active: !exists, likes, favorites });
   });
 }
 r.post('/templates/:id/like', requireAuth, toggle('likes'));

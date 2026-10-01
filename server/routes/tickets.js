@@ -1,14 +1,14 @@
 // 客服工单：游客提交；关联订单的工单由订单所属商户处理，管理员可处理全部
 import { Router } from 'express';
-import { all, one, run, scalar, tx } from '../db.js';
+import { all, one, run, tx } from '../db.js';
 import { requireAuth } from '../auth.js';
-import { bad, conflict, forbidden, h, notFound, now, page, str } from '../util.js';
+import { userBrief } from '../domain.js';
+import { bad, conflict, forbidden, h, notFound, now, paged, str } from '../util.js';
 
 const r = Router();
 r.use(requireAuth);
 
 function ticketView(t, { withMessages = false } = {}) {
-  const u = one('SELECT id, username, nickname FROM users WHERE id = ?', t.user_id);
   const scene = t.scene_id ? one('SELECT id, name FROM scenes WHERE id = ?', t.scene_id) : null;
   const order = t.order_id ? one('SELECT id, order_no FROM orders WHERE id = ?', t.order_id) : null;
   const last = one('SELECT content, created_at FROM ticket_messages WHERE ticket_id = ? ORDER BY id DESC LIMIT 1', t.id);
@@ -16,8 +16,8 @@ function ticketView(t, { withMessages = false } = {}) {
     id: t.id,
     title: t.title,
     status: t.status,
-    user: u && { id: u.id, username: u.username, nickname: u.nickname },
-    scene: scene && { id: scene.id, name: scene.name },
+    user: userBrief(t.user_id),
+    scene,
     order: order && { id: order.id, orderNo: order.order_no },
     handler: t.merchant_id ? 'merchant' : 'admin',
     lastMessage: last?.content?.slice(0, 80) ?? '',
@@ -55,7 +55,6 @@ function loadTicket(req) {
 
 // scope=mine（我提交的）/ handle（我处理的）
 r.get('/', (req, res) => {
-  const { size, offset, page: p } = page(req);
   const where = [];
   const params = [];
   if (req.query.scope === 'handle') {
@@ -76,10 +75,15 @@ r.get('/', (req, res) => {
     where.push('status = ?');
     params.push(req.query.status);
   }
-  const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const total = scalar(`SELECT COUNT(*) FROM tickets ${w}`, ...params);
-  const list = all(`SELECT * FROM tickets ${w} ORDER BY CASE status WHEN 'PENDING' THEN 0 WHEN 'REPLIED' THEN 1 ELSE 2 END, updated_at DESC LIMIT ? OFFSET ?`, ...params, size, offset);
-  res.json({ list: list.map((t) => ticketView(t)), total, page: p, size });
+  res.json(
+    paged(req, {
+      from: 'tickets',
+      where,
+      params,
+      order: "CASE status WHEN 'PENDING' THEN 0 WHEN 'REPLIED' THEN 1 ELSE 2 END, updated_at DESC",
+      map: (t) => ticketView(t),
+    }),
+  );
 });
 
 r.post(

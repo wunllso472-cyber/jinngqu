@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { run } from './db.js';
+import { all, run, scalar } from './db.js';
 
 export class ApiError extends Error {
   constructor(status, message, code) {
@@ -48,6 +48,15 @@ export function page(req, defSize = 20) {
   const size = Math.min(100, Math.max(1, Number(req.query.size) || defSize));
   const pageNo = Math.max(1, Number(req.query.page) || 1);
   return { size, page: pageNo, offset: (pageNo - 1) * size };
+}
+
+/** 分页列表：COUNT + LIMIT/OFFSET，返回 { list, total, page, size } */
+export function paged(req, { from, where = [], params = [], select = '*', order = 'id DESC', size: defSize, map = (x) => x }) {
+  const { size, offset, page: p } = page(req, defSize);
+  const w = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+  const total = scalar(`SELECT COUNT(*) FROM ${from}${w}`, ...params);
+  const list = all(`SELECT ${select} FROM ${from}${w} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, size, offset).map((x) => map(x));
+  return { list, total, page: p, size };
 }
 
 export function str(value, max = 200) {

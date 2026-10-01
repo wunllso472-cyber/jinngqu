@@ -60,7 +60,6 @@ p { margin: 0; }
 .wrap { flex-wrap: wrap; }
 .grow { flex: 1; min-width: 0; }
 .stack { display: flex; flex-direction: column; gap: 12px; }
-.pad { padding: 0 16px; }
 .section { padding: 16px; }
 .section-title { font-size: 16px; font-weight: 650; margin: 4px 0 12px; display: flex; align-items: center; justify-content: space-between; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -265,18 +264,9 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .hero { position: relative; min-height: 260px; display: flex; align-items: flex-end; overflow: hidden; }
 .hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(12,12,17,.1) 0%, rgba(12,12,17,.35) 45%, var(--bg) 100%); }
-.hero-inner { position: relative; z-index: 1; padding: 16px; width: 100%; }
 .hero h2 { font-size: 28px; letter-spacing: 1px; }
-.hero-top { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 2; display: flex; justify-content: space-between; align-items: center; }
 .chip { display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 12px; border-radius: 999px; background: rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.15); backdrop-filter: blur(8px); font-size: 13px; }
 .brand { font-weight: 700; letter-spacing: 1px; }
-.service-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.service-card { position: relative; text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 10px; }
-.service-card.active { border-color: var(--gold); background: linear-gradient(180deg, rgba(37,244,238,.14), var(--card)); }
-.service-card .icon { font-size: 22px; }
-.service-card .name { font-weight: 650; font-size: 14px; margin-top: 4px; }
-.service-card .price { color: var(--gold); font-size: 12.5px; margin-top: 2px; }
-.service-card .off { position: absolute; top: 8px; right: 8px; }
 .tpl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .tpl-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; text-align: left; padding: 0; display: flex; flex-direction: column; }
 .tpl-cover { position: relative; aspect-ratio: 3 / 4; background: var(--bg-2); }
@@ -285,12 +275,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .tpl-meta { padding: 9px 10px 11px; }
 .tpl-title { font-weight: 600; font-size: 14px; }
 .tpl-sub { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 3px; }
-.scene-list { display: flex; flex-direction: column; gap: 12px; }
-.scene-card { position: relative; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); min-height: 150px; display: flex; align-items: flex-end; text-align: left; padding: 0; background: var(--card); }
-.scene-card img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.scene-card::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 20%, rgba(0,0,0,.78)); }
-.scene-card .inner { position: relative; z-index: 1; padding: 14px; width: 100%; }
-.scene-card h3 { font-size: 20px; }
 
 /* ---------- detail ---------- */
 .detail-cover { position: relative; background: var(--bg-2); }
@@ -308,9 +292,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .char-item img { width: 100%; aspect-ratio: 3/4; object-fit: cover; }
 .char-item .nm { font-size: 12px; padding: 4px; }
 .char-add { display: grid; place-items: center; aspect-ratio: 3/4; font-size: 26px; color: var(--muted); }
-.steps { display: flex; gap: 8px; }
-.step-dot { flex: 1; height: 4px; border-radius: 4px; background: var(--line); }
-.step-dot.on { background: var(--gold); }
 .progress { height: 10px; border-radius: 999px; background: var(--card-2); overflow: hidden; }
 .progress > div { height: 100%; background: linear-gradient(90deg, var(--gold), var(--gold-2)); transition: width .5s; }
 .pay-amount { font-size: 34px; font-weight: 750; color: var(--gold); text-align: center; margin: 8px 0; }
@@ -330,8 +311,6 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .menu > :last-child { border-bottom: 0; }
 .menu .mi-icon { width: 22px; text-align: center; }
 .menu .mi-arrow { margin-left: auto; color: var(--muted); }
-.login-card { margin: 24px 16px; }
-.login-card h2 { font-size: 22px; margin-bottom: 4px; }
 
 /* ---------- chat ---------- */
 .chat { display: flex; flex-direction: column; gap: 10px; }
